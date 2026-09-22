@@ -1,14 +1,19 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Cookie, Request, Response
+from fastapi import APIRouter, Cookie, Depends, Request, Response
+from fastapi.responses import RedirectResponse
 
+from app.core.audit.writer import write_audit
 from app.core.config import Settings
+from app.core.context import Actor
 from app.core.db.session import SessionDep
 from app.core.deps import RedisDep, SettingsDep
-from app.core.errors import Unauthorized
+from app.core.errors import BadRequest, Unauthorized
 from app.core.mail import MailerDep
 from app.modules.identity.dependencies import CurrentActor
 from app.modules.identity.magic_link import MagicLinkService
+from app.modules.identity.oidc import OidcProvider
+from app.modules.identity.oidc_login import OidcLoginService
 from app.modules.identity.repository import UserRepository
 from app.modules.identity.schemas import (
     MagicLinkRequest,
@@ -106,3 +111,46 @@ async def verify_magic_link(
     issued = await SessionService(session, settings).start(user, amr=["email"])
     set_refresh_cookie(response, settings, issued)
     return TokenResponse(access_token=issued.access_token, expires_in=issued.expires_in)
+
+
+def get_oidc_provider(request: Request) -> OidcProvider:
+    return request.app.state.oidc_provider
+
+
+OidcProviderDep = Annotated[OidcProvider, Depends(get_oidc_provider)]
+
+
+@router.get("/auth/oidc/login")
+async def oidc_login(
+    session: SessionDep, redis: RedisDep, settings: SettingsDep, provider: OidcProviderDep
+) -> RedirectResponse:
+    url = await OidcLoginService(session, redis, settings, provider).begin()
+    return RedirectResponse(url, status_code=302)
+
+
+@router.get("/auth/oidc/callback")
+async def oidc_callback(
+    session: SessionDep,
+    redis: RedisDep,
+    settings: SettingsDep,
+    provider: OidcProviderDep,
+    state: str,
+    code: str | None = None,
+    error: str | None = None,
+) -> RedirectResponse:
+    if error or not code:
+        raise BadRequest("The identity provider did not complete sign-in", code="oidc_error")
+    service = OidcLoginService(session, redis, settings, provider)
+    user, claims = await service.complete(code=code, state=state)
+    issued = await SessionService(session, settings).start(user, amr=claims.amr)
+    await write_audit(
+        session,
+        actor=Actor(user_id=user.id, role=user.role),
+        action="auth.sso_login",
+        target_type="user_account",
+        target_id=user.id,
+        after={"amr": claims.amr},
+    )
+    response = RedirectResponse(f"{settings.public_app_url}/console", status_code=302)
+    set_refresh_cookie(response, settings, issued)
+    return response

@@ -12,6 +12,7 @@ from app.core.errors import install_error_handlers
 from app.core.logging import configure_logging
 from app.core.mail import ConsoleMailer
 from app.core.middleware import CorrelationIdMiddleware
+from app.modules.identity.oidc import AuthlibOidcProvider
 from app.modules.identity.router import router as identity_router
 
 
@@ -37,6 +38,7 @@ def create_app(
     app.state.sessionmaker = async_sessionmaker(app.state.engine, expire_on_commit=False)
     app.state.redis = redis or Redis.from_url(settings.redis_url, decode_responses=True)
     app.state.mailer = ConsoleMailer()
+    app.state.oidc_provider = AuthlibOidcProvider(settings)
     install_error_handlers(app)
     app.add_middleware(CorrelationIdMiddleware)
     app.include_router(health.router)
