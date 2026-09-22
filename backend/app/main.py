@@ -10,6 +10,7 @@ from app.core.config import Settings, get_settings
 from app.core.db.session import create_engine
 from app.core.errors import install_error_handlers
 from app.core.logging import configure_logging
+from app.core.mail import ConsoleMailer
 from app.core.middleware import CorrelationIdMiddleware
 from app.modules.identity.router import router as identity_router
 
@@ -35,6 +36,7 @@ def create_app(
     app.state.engine = engine or create_engine(settings)
     app.state.sessionmaker = async_sessionmaker(app.state.engine, expire_on_commit=False)
     app.state.redis = redis or Redis.from_url(settings.redis_url, decode_responses=True)
+    app.state.mailer = ConsoleMailer()
     install_error_handlers(app)
     app.add_middleware(CorrelationIdMiddleware)
     app.include_router(health.router)

@@ -1,7 +1,7 @@
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 from app.core.enums import UserRole
 
@@ -18,3 +18,11 @@ class MeResponse(BaseModel):
     role: UserRole
     worker_id: UUID | None
     can_view_governance: bool
+
+
+class MagicLinkRequest(BaseModel):
+    email: EmailStr
+
+
+class MagicLinkVerify(BaseModel):
+    token: str
