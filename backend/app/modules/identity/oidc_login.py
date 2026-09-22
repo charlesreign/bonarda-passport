@@ -27,7 +27,7 @@ class OidcLoginService:
         self.provider = provider
         self.users = UserRepository(session)
 
-    async def begin(self) -> str:
+    async def begin(self) -> tuple[str, str]:
         state = secrets.token_urlsafe(32)
         nonce = secrets.token_urlsafe(32)
         code_verifier = secrets.token_urlsafe(48)
@@ -36,9 +36,10 @@ class OidcLoginService:
             json.dumps({"nonce": nonce, "code_verifier": code_verifier}),
             ex=STATE_TTL_SECONDS,
         )
-        return await self.provider.authorization_url(
+        url = await self.provider.authorization_url(
             state=state, nonce=nonce, code_verifier=code_verifier
         )
+        return url, state
 
     async def complete(self, *, code: str, state: str) -> tuple[UserAccount, IdTokenClaims]:
         raw = await self.redis.getdel(STATE_PREFIX + state)

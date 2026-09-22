@@ -1,3 +1,4 @@
+import secrets
 from typing import Annotated
 
 from fastapi import APIRouter, Cookie, Depends, Request, Response
@@ -27,6 +28,9 @@ router = APIRouter(prefix="/api/v1", tags=["identity"])
 
 REFRESH_COOKIE = "bonarda_refresh"
 COOKIE_PATH = "/api/v1/auth"
+OIDC_STATE_COOKIE = "bonarda_oidc_state"
+OIDC_COOKIE_PATH = "/api/v1/auth/oidc"
+OIDC_STATE_COOKIE_TTL_SECONDS = 600
 
 
 def set_refresh_cookie(response: Response, settings: Settings, issued: IssuedSession) -> None:
@@ -119,13 +123,27 @@ def get_oidc_provider(request: Request) -> OidcProvider:
 
 OidcProviderDep = Annotated[OidcProvider, Depends(get_oidc_provider)]
 
+OidcStateCookie = Annotated[str | None, Cookie(alias=OIDC_STATE_COOKIE)]
+
 
 @router.get("/auth/oidc/login")
 async def oidc_login(
     session: SessionDep, redis: RedisDep, settings: SettingsDep, provider: OidcProviderDep
 ) -> RedirectResponse:
-    url = await OidcLoginService(session, redis, settings, provider).begin()
-    return RedirectResponse(url, status_code=302)
+    url, state = await OidcLoginService(session, redis, settings, provider).begin()
+    response = RedirectResponse(url, status_code=302)
+    response.set_cookie(
+        OIDC_STATE_COOKIE,
+        state,
+        max_age=OIDC_STATE_COOKIE_TTL_SECONDS,
+        httponly=True,
+        secure=settings.cookie_secure,
+        # "lax", not "strict": this cookie must ride along on the IdP's
+        # cross-site top-level redirect back to /callback.
+        samesite="lax",
+        path=OIDC_COOKIE_PATH,
+    )
+    return response
 
 
 @router.get("/auth/oidc/callback")
@@ -137,9 +155,15 @@ async def oidc_callback(
     state: str,
     code: str | None = None,
     error: str | None = None,
+    oidc_state_cookie: OidcStateCookie = None,
 ) -> RedirectResponse:
     if error or not code:
         raise BadRequest("The identity provider did not complete sign-in", code="oidc_error")
+    if oidc_state_cookie is None or not secrets.compare_digest(oidc_state_cookie, state):
+        raise BadRequest(
+            "Sign-in was started in a different browser; start again",
+            code="oidc_state_mismatch",
+        )
     service = OidcLoginService(session, redis, settings, provider)
     user, claims = await service.complete(code=code, state=state)
     issued = await SessionService(session, settings).start(user, amr=claims.amr)
@@ -153,4 +177,5 @@ async def oidc_callback(
     )
     response = RedirectResponse(f"{settings.public_app_url}/console", status_code=302)
     set_refresh_cookie(response, settings, issued)
+    response.delete_cookie(OIDC_STATE_COOKIE, path=OIDC_COOKIE_PATH)
     return response

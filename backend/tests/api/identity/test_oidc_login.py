@@ -11,7 +11,7 @@ from app.core.audit.models import AuditLog
 from app.core.enums import AccountStatus, AuthProvider, UserRole
 from app.modules.identity.models import UserAccount
 from app.modules.identity.oidc import IdTokenClaims
-from app.modules.identity.router import REFRESH_COOKIE
+from app.modules.identity.router import OIDC_STATE_COOKIE, REFRESH_COOKIE
 from tests.support import make_user
 
 
@@ -61,6 +61,14 @@ async def test_first_login_provisions_staff_account(
     assert response.status_code == 302
     assert response.headers["location"] == "http://app.test/console"
     assert REFRESH_COOKIE in response.cookies
+    set_cookie_headers = response.headers.get_list("set-cookie")
+    state_cookie_header = next(
+        h for h in set_cookie_headers if h.startswith(f"{OIDC_STATE_COOKIE}=")
+    )
+    assert (
+        state_cookie_header.startswith(f"{OIDC_STATE_COOKIE}=;")
+        or "Max-Age=0" in state_cookie_header
+    )
     user = (await session.scalars(select(UserAccount))).one()
     assert (user.email, user.role, user.auth_provider) == (
         "ama@bonarda.works",
@@ -186,6 +194,11 @@ async def test_state_can_only_be_used_once(client: AsyncClient, idp: FakeOidcPro
     state = await _login(client)
     await client.get("/api/v1/auth/oidc/callback", params={"code": "c", "state": state})
 
+    # The first (successful) callback clears the browser's state cookie, so a
+    # bare replay would now fail the browser-binding check instead of
+    # exercising the single-use Redis lookup. Re-present the cookie explicitly
+    # to isolate what this test targets: state can't be redeemed twice.
+    client.cookies.set(OIDC_STATE_COOKIE, state)
     replay = await client.get("/api/v1/auth/oidc/callback", params={"code": "c", "state": state})
 
     assert replay.status_code == 400
@@ -199,3 +212,24 @@ async def test_idp_error_is_reported(client: AsyncClient, idp: FakeOidcProvider)
 
     assert response.status_code == 400
     assert response.json()["code"] == "oidc_error"
+
+
+async def test_login_sets_state_cookie(client: AsyncClient, idp: FakeOidcProvider) -> None:
+    response = await client.get("/api/v1/auth/oidc/login")
+
+    assert response.status_code == 302
+    state = parse_qs(urlparse(response.headers["location"]).query)["state"][0]
+    assert response.cookies[OIDC_STATE_COOKIE] == state
+
+
+async def test_callback_from_another_browser_is_rejected(
+    client: AsyncClient, session: AsyncSession, idp: FakeOidcProvider
+) -> None:
+    state = await _login(client)
+    client.cookies.clear()
+
+    response = await client.get("/api/v1/auth/oidc/callback", params={"code": "c", "state": state})
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "oidc_state_mismatch"
+    assert (await session.scalars(select(UserAccount))).all() == []
