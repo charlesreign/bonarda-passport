@@ -1,6 +1,7 @@
 """Public interface of the identity module. Other modules import from here
 (and from schemas) only — never from identity's internal files."""
 
-from app.modules.identity.dependencies import CurrentActor
+from app.modules.identity.dependencies import CurrentActor, require_permission
+from app.modules.identity.permissions import Permission
 
-__all__ = ["CurrentActor"]
+__all__ = ["CurrentActor", "Permission", "require_permission"]

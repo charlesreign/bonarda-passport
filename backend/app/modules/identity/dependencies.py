@@ -1,3 +1,4 @@
+from collections.abc import Awaitable, Callable
 from typing import Annotated
 
 from fastapi import Depends
@@ -5,7 +6,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.context import Actor
 from app.core.deps import RedisDep, SettingsDep
-from app.core.errors import Unauthorized
+from app.core.errors import Forbidden, Unauthorized
+from app.modules.identity.permissions import Permission, has_permission
 from app.modules.identity.revocation import is_revoked
 from app.modules.identity.tokens import decode_access_token
 
@@ -26,3 +28,12 @@ async def get_current_actor(
 
 
 CurrentActor = Annotated[Actor, Depends(get_current_actor)]
+
+
+def require_permission(permission: Permission) -> Callable[..., Awaitable[Actor]]:
+    async def dependency(actor: CurrentActor) -> Actor:
+        if not has_permission(actor.role, permission):
+            raise Forbidden(f"Missing permission {permission.value}", code="permission_denied")
+        return actor
+
+    return dependency
