@@ -79,7 +79,7 @@ class SessionService:
 
     async def rotate(self, refresh_token: str) -> IssuedSession:
         now = utcnow()
-        current = await self.refresh.get_by_hash(hash_token(refresh_token))
+        current = await self.refresh.get_by_hash_for_update(hash_token(refresh_token))
         if current is None:
             raise Unauthorized("Unknown refresh token", code="invalid_refresh")
         if current.revoked_at is not None:
@@ -114,3 +114,11 @@ class SessionService:
         current = await self.refresh.get_by_hash(hash_token(refresh_token))
         if current is not None:
             await self.refresh.revoke_family(current.family_id, utcnow())
+            await write_audit(
+                self.session,
+                actor=None,
+                action="auth.logout",
+                target_type="user_account",
+                target_id=current.user_id,
+                after={"family_id": str(current.family_id)},
+            )

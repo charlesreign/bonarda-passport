@@ -1,12 +1,14 @@
+import asyncio
 from datetime import timedelta
 
 from httpx import AsyncClient
 from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.audit.models import AuditLog
 from app.core.config import Settings
 from app.core.enums import AccountStatus, UserRole
+from app.core.errors import Unauthorized
 from app.core.time import utcnow
 from app.modules.identity.models import RefreshSession, UserAccount
 from app.modules.identity.router import COOKIE_PATH, REFRESH_COOKIE
@@ -61,6 +63,43 @@ async def test_concurrent_reuse_within_grace_is_retryable_not_theft(
     assert second.json()["code"] == "refresh_superseded"
     _use_cookie(client, winner)
     assert (await client.post("/api/v1/auth/refresh")).status_code == 200
+
+
+async def test_concurrent_rotation_is_serialized_by_row_lock(
+    sessionmaker: async_sessionmaker[AsyncSession], session: AsyncSession, settings: Settings
+) -> None:
+    """Two truly concurrent rotations of the same token must not both mint a
+    child session: the row lock in `get_by_hash_for_update` forces the loser
+    to see `revoked_at` already set once the winner commits."""
+    user = await make_user(session)
+    issued = await _start(session, settings, user)
+
+    async def _rotate() -> IssuedSession | Unauthorized:
+        async with sessionmaker() as s:
+            try:
+                result = await SessionService(s, settings).rotate(issued.refresh_token)
+                await s.commit()
+                return result
+            except Unauthorized as exc:
+                await s.rollback()
+                return exc
+
+    results = await asyncio.gather(_rotate(), _rotate())
+
+    successes = [r for r in results if isinstance(r, IssuedSession)]
+    failures = [r for r in results if isinstance(r, Unauthorized)]
+    assert len(successes) == 1
+    assert len(failures) == 1
+    assert failures[0].code == "refresh_superseded"
+
+    remaining = (
+        await session.scalars(
+            select(RefreshSession).where(
+                RefreshSession.user_id == user.id, RefreshSession.revoked_at.is_(None)
+            )
+        )
+    ).all()
+    assert len(remaining) == 1
 
 
 async def test_reuse_after_grace_revokes_the_whole_family(
@@ -154,6 +193,8 @@ async def test_logout_revokes_family_and_clears_cookie(
     assert 'bonarda_refresh=""' in response.headers["set-cookie"]
     _use_cookie(client, issued.refresh_token)
     assert (await client.post("/api/v1/auth/refresh")).status_code == 401
+    audit = (await session.scalars(select(AuditLog.action))).all()
+    assert "auth.logout" in audit
 
 
 async def test_me_returns_the_account(

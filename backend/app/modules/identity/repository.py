@@ -43,6 +43,13 @@ class RefreshSessionRepository:
             select(RefreshSession).where(RefreshSession.token_hash == token_hash)
         )
 
+    async def get_by_hash_for_update(self, token_hash: str) -> RefreshSession | None:
+        """Locks the row so a concurrent rotation of the same token blocks until
+        this transaction commits, instead of both requests reading it valid."""
+        return await self.session.scalar(
+            select(RefreshSession).where(RefreshSession.token_hash == token_hash).with_for_update()
+        )
+
     def add(self, row: RefreshSession) -> RefreshSession:
         self.session.add(row)
         return row
