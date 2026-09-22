@@ -8,6 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 from app.core import health
 from app.core.config import Settings, get_settings
 from app.core.db.session import create_engine
+from app.core.errors import install_error_handlers
+from app.core.logging import configure_logging
+from app.core.middleware import CorrelationIdMiddleware
 
 
 @asynccontextmanager
@@ -25,10 +28,13 @@ def create_app(
 ) -> FastAPI:
     """App factory. Run with `uvicorn app.main:create_app --factory`."""
     settings = settings or get_settings()
+    configure_logging(json_logs=settings.env != "dev")
     app = FastAPI(title="Bonarda Works API", version="0.1.0", lifespan=lifespan)
     app.state.settings = settings
     app.state.engine = engine or create_engine(settings)
     app.state.sessionmaker = async_sessionmaker(app.state.engine, expire_on_commit=False)
     app.state.redis = redis or Redis.from_url(settings.redis_url, decode_responses=True)
+    install_error_handlers(app)
+    app.add_middleware(CorrelationIdMiddleware)
     app.include_router(health.router)
     return app
