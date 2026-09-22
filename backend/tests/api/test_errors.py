@@ -2,7 +2,7 @@ import re
 
 import pytest
 from fastapi import APIRouter, FastAPI
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 from pydantic import BaseModel
 
 from app.core.errors import NotFound
@@ -23,6 +23,10 @@ def error_routes(app: FastAPI) -> None:
     @router.post("/_test/validate")
     async def validate(body: _Body) -> dict[str, str]:
         return {"name": body.name}
+
+    @router.get("/_test/boom")
+    async def boom() -> None:
+        raise RuntimeError("secret internals")
 
     app.include_router(router)
 
@@ -78,3 +82,18 @@ async def test_hostile_correlation_id_is_replaced(client: AsyncClient, hostile: 
     returned = response.headers["x-correlation-id"]
     assert returned != hostile
     assert re.fullmatch(r"[0-9a-f]{32}", returned)
+
+
+@pytest.mark.usefixtures("error_routes")
+async def test_unhandled_error_renders_problem_json_without_leaking_detail(
+    app: FastAPI,
+) -> None:
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://api.test") as raw_client:
+        response = await raw_client.get("/_test/boom")
+
+    assert response.status_code == 500
+    assert response.headers["content-type"] == "application/problem+json"
+    body = response.json()
+    assert body["code"] == "internal_error"
+    assert "secret internals" not in response.text

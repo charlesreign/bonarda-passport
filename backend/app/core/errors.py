@@ -1,6 +1,7 @@
 from http import HTTPStatus
 from typing import Any
 
+import structlog
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -10,6 +11,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.core.context import get_correlation_id
 
 PROBLEM_JSON = "application/problem+json"
+
+log = structlog.get_logger(__name__)
 
 
 class AppError(Exception):
@@ -121,7 +124,19 @@ async def _http_error(request: Request, exc: Exception) -> JSONResponse:
     )
 
 
+async def _unhandled_error(request: Request, exc: Exception) -> JSONResponse:
+    log.exception("request.unhandled_error", exc_info=exc)
+    return problem_response(
+        request,
+        status=500,
+        code="internal_error",
+        title="Internal server error",
+        detail="An unexpected error occurred",
+    )
+
+
 def install_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(AppError, _app_error)
     app.add_exception_handler(RequestValidationError, _validation_error)
     app.add_exception_handler(StarletteHTTPException, _http_error)
+    app.add_exception_handler(Exception, _unhandled_error)
