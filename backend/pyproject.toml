@@ -1,0 +1,47 @@
+[project]
+name = "bonarda-backend"
+version = "0.1.0"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # em dashes and accented French text are intended
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Header", "fastapi.Cookie"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = false
+plugins = ["pydantic.mypy"]
+packages = ["app"]
+
+[[tool.mypy.overrides]]
+module = ["arq.*", "asyncpg.*", "authlib.*", "redis.*", "testcontainers.*", "fakeredis.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.importlinter]
+root_package = "app"
+
+[[tool.importlinter.contracts]]
+name = "core depends on nothing above it"
+type = "forbidden"
+source_modules = ["app.core"]
+forbidden_modules = ["app.modules", "app.main", "app.worker", "app.wiring", "app.models_registry"]
+
+[[tool.importlinter.contracts]]
+name = "modules do not depend on the composition root"
+type = "forbidden"
+source_modules = ["app.modules"]
+forbidden_modules = ["app.main", "app.worker", "app.wiring", "app.models_registry"]

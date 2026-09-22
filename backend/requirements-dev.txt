@@ -11,12 +11,12 @@ httpx==0.27.2            # also used as the async test client
 factory-boy==3.3.1
 faker==29.0.0
 testcontainers[postgres]==4.8.1   # real Postgres for integration tests (outbox, triggers)
+fakeredis==2.25.1                 # in-process Redis for API tests
 locust==2.31.8                    # pre-launch load test (NFR-1.1)
 
 # --- Linting & typing ---
 ruff==0.6.9
 mypy==1.11.2
-types-redis==4.6.0.20240819
 import-linter==2.1                # module boundary contracts
 
 # --- Local tooling ---
