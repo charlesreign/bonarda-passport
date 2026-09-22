@@ -11,6 +11,7 @@ from app.core.db.session import create_engine
 from app.core.errors import install_error_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import CorrelationIdMiddleware
+from app.modules.identity.router import router as identity_router
 
 
 @asynccontextmanager
@@ -37,4 +38,5 @@ def create_app(
     install_error_handlers(app)
     app.add_middleware(CorrelationIdMiddleware)
     app.include_router(health.router)
+    app.include_router(identity_router)
     return app
