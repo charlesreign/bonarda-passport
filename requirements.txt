@@ -1,0 +1,38 @@
+# Bonarda Works — Backend dependencies (production)
+# Python 3.12+
+
+# --- Web framework ---
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+gunicorn==22.0.0
+
+# --- Validation & settings ---
+pydantic==2.9.2
+pydantic-settings==2.5.2
+email-validator==2.2.0
+
+# --- Database ---
+sqlalchemy[asyncio]==2.0.35
+asyncpg==0.29.0
+alembic==1.13.2
+
+# --- Cache / queue ---
+redis==5.0.8
+arq==0.26.1
+
+# --- Auth ---
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.9
+
+# --- HTTP client (integrations: SSO, e-signature, payroll) ---
+httpx==0.27.2
+tenacity==9.0.0
+
+# --- Observability ---
+structlog==24.4.0
+prometheus-fastapi-instrumentator==7.0.0
+
+# --- Utilities ---
+orjson==3.10.7
+python-dotenv==1.0.1
