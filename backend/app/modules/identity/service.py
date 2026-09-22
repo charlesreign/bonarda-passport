@@ -3,5 +3,19 @@
 
 from app.modules.identity.dependencies import CurrentActor, require_permission
 from app.modules.identity.permissions import Permission
+from app.modules.identity.visibility import (
+    Visibility,
+    VisibilityPolicy,
+    VisibilitySource,
+    require_visibility,
+)
 
-__all__ = ["CurrentActor", "Permission", "require_permission"]
+__all__ = [
+    "CurrentActor",
+    "Permission",
+    "Visibility",
+    "VisibilityPolicy",
+    "VisibilitySource",
+    "require_permission",
+    "require_visibility",
+]

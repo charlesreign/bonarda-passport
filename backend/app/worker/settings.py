@@ -10,7 +10,12 @@ from app.core.db.session import create_engine
 from app.core.logging import configure_logging
 from app.core.outbox.relay import listen_dsn, run_relay
 from app.wiring import build_registry
-from app.worker.jobs import MAX_HANDLER_TRIES, purge_outbox, run_event_handler
+from app.worker.jobs import (
+    MAX_HANDLER_TRIES,
+    expire_access_grants,
+    purge_outbox,
+    run_event_handler,
+)
 
 
 async def startup(ctx: dict[str, Any]) -> None:
@@ -42,7 +47,10 @@ class WorkerSettings:
     """Run with `arq app.worker.settings.WorkerSettings`."""
 
     functions: ClassVar[list[Any]] = [run_event_handler]
-    cron_jobs: ClassVar[list[Any]] = [cron(purge_outbox, hour={2}, minute={30})]
+    cron_jobs: ClassVar[list[Any]] = [
+        cron(purge_outbox, hour={2}, minute={30}),
+        cron(expire_access_grants, minute=set(range(0, 60, 5))),
+    ]
     on_startup = startup
     on_shutdown = shutdown
     max_tries = MAX_HANDLER_TRIES

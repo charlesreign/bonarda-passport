@@ -14,6 +14,8 @@ from app.core.mail import ConsoleMailer
 from app.core.middleware import CorrelationIdMiddleware
 from app.modules.identity.oidc import AuthlibOidcProvider
 from app.modules.identity.router import router as identity_router
+from app.modules.identity.service import VisibilityPolicy
+from app.wiring import visibility_sources
 
 
 @asynccontextmanager
@@ -39,6 +41,7 @@ def create_app(
     app.state.redis = redis or Redis.from_url(settings.redis_url, decode_responses=True)
     app.state.mailer = ConsoleMailer()
     app.state.oidc_provider = AuthlibOidcProvider(settings)
+    app.state.visibility_policy = VisibilityPolicy(visibility_sources())
     install_error_handlers(app)
     app.add_middleware(CorrelationIdMiddleware)
     app.include_router(health.router)

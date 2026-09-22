@@ -1,5 +1,6 @@
 import secrets
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Cookie, Depends, Request, Response
 from fastapi.responses import RedirectResponse
@@ -11,12 +12,16 @@ from app.core.db.session import SessionDep
 from app.core.deps import RedisDep, SettingsDep
 from app.core.errors import BadRequest, Unauthorized
 from app.core.mail import MailerDep
-from app.modules.identity.dependencies import CurrentActor
+from app.modules.identity.dependencies import CurrentActor, require_permission
+from app.modules.identity.grants import GrantService
 from app.modules.identity.magic_link import MagicLinkService
 from app.modules.identity.oidc import OidcProvider
 from app.modules.identity.oidc_login import OidcLoginService
+from app.modules.identity.permissions import Permission
 from app.modules.identity.repository import UserRepository
 from app.modules.identity.schemas import (
+    GrantCreate,
+    GrantRead,
     MagicLinkRequest,
     MagicLinkVerify,
     MeResponse,
@@ -179,3 +184,27 @@ async def oidc_callback(
     set_refresh_cookie(response, settings, issued)
     response.delete_cookie(OIDC_STATE_COOKIE, path=OIDC_COOKIE_PATH)
     return response
+
+
+GrantManager = Annotated[Actor, Depends(require_permission(Permission.ACCESS_GRANT_MANAGE))]
+
+
+@router.post("/access-grants", status_code=201)
+async def create_access_grant(
+    body: GrantCreate, actor: GrantManager, session: SessionDep
+) -> GrantRead:
+    grant = await GrantService(session).create(actor, body)
+    return GrantRead.model_validate(grant)
+
+
+@router.get("/access-grants")
+async def list_access_grants(
+    actor: GrantManager, session: SessionDep, granted_to_id: UUID | None = None
+) -> list[GrantRead]:
+    grants = await GrantService(session).list_active(granted_to_id)
+    return [GrantRead.model_validate(g) for g in grants]
+
+
+@router.delete("/access-grants/{grant_id}", status_code=204)
+async def revoke_access_grant(grant_id: UUID, actor: GrantManager, session: SessionDep) -> None:
+    await GrantService(session).revoke(actor, grant_id)

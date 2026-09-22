@@ -7,6 +7,7 @@ import structlog
 from arq.worker import Retry
 
 from app.core.outbox.processing import process_event, purge_dispatched_events
+from app.modules.identity.grants import GrantService
 
 MAX_HANDLER_TRIES = 5
 DEAD_LETTER_KEY = "outbox:dead_letter"
@@ -32,3 +33,8 @@ async def run_event_handler(ctx: dict[str, Any], event_id: str, handler_name: st
 
 async def purge_outbox(ctx: dict[str, Any]) -> int:
     return await purge_dispatched_events(ctx["sessionmaker"], older_than=timedelta(days=14))
+
+
+async def expire_access_grants(ctx: dict[str, Any]) -> int:
+    async with ctx["sessionmaker"]() as session, session.begin():
+        return await GrantService(session).sweep_expired()
