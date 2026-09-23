@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.dependencies.models import Dependant
 from fastapi.dependencies.utils import get_flat_dependant
 from fastapi.routing import APIRoute
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.context import Actor
@@ -85,14 +86,28 @@ def _has_guard(dependant: Dependant) -> bool:
     )
 
 
+def _body_field_names(route: APIRoute) -> set[str]:
+    names: set[str] = set()
+    for param in get_flat_dependant(route.dependant).body_params:
+        annotation = param.field_info.annotation
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            names |= set(annotation.model_fields)
+        else:
+            names.add(param.name)
+    return names
+
+
 def unguarded_worker_routes(app: FastAPI) -> list[str]:
-    """Routes that take a `worker_id` (path or query) without require_visibility."""
+    """Routes that could expose a worker without the visibility check: a
+    `worker_id` path/query parameter without require_visibility, or a
+    `worker_id` anywhere in a request body (address workers in the path)."""
     offenders = []
     for route in app.routes:
         if not isinstance(route, APIRoute):
             continue
         flat = get_flat_dependant(route.dependant)
         params = {p.name for p in flat.path_params + flat.query_params}
-        if "worker_id" in params and not _has_guard(route.dependant):
+        unguarded_param = "worker_id" in params and not _has_guard(route.dependant)
+        if unguarded_param or "worker_id" in _body_field_names(route):
             offenders.append(route.path)
     return offenders

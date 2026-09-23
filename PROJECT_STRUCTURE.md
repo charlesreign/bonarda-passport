@@ -42,7 +42,11 @@ bonarda-passport/
 │   │   │   │   ├── visibility.py          # VisibilityPolicy dependency (FR-9.4)
 │   │   │   │   ├── tokens.py              # PyJWT access tokens, refresh rotation, magic links
 │   │   │   │   └── handlers.py
-│   │   │   ├── passport/                  # router, service, repository, models, schemas, handlers
+│   │   │   ├── passport/                  # workers, skills, claims, consents, invitations (Plan 2A)
+│   │   │   │   ├── enums.py, models.py, repository.py, schemas.py, dependencies.py
+│   │   │   │   ├── skills.py, profile.py, consents.py, invitations.py
+│   │   │   │   ├── router.py
+│   │   │   │   └── service.py
 │   │   │   ├── engagements/               # + structured feedback schema
 │   │   │   ├── standing/                  # + rules.py (pure tier evaluation)
 │   │   │   ├── roster/                    # + scoring.py, first_shot.py (pure functions)
@@ -52,7 +56,7 @@ bonarda-passport/
 │   │   │       │   ├── base.py            # EsignAdapter protocol
 │   │   │       │   └── fake.py            # dev/demo: auto-signs after a delay
 │   │   │       ├── payroll/               # base.py, fake.py
-│   │   │       ├── email/                 # base.py, smtp.py (Mailpit in dev)
+│   │   │       ├── smtp.py                # SmtpMailer; service.py exposes build_mailer
 │   │   │       └── webhooks.py            # HMAC verification
 │   │   └── worker/
 │   │       ├── settings.py                # Arq WorkerSettings, cron schedule, relay startup
