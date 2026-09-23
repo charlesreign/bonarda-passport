@@ -1,12 +1,13 @@
 from collections.abc import Awaitable, Callable, Sequence
 from enum import IntEnum
-from typing import Annotated
+from typing import Annotated, get_args, get_origin
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.dependencies.models import Dependant
 from fastapi.dependencies.utils import get_flat_dependant
 from fastapi.routing import APIRoute
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.context import Actor
@@ -85,14 +86,50 @@ def _has_guard(dependant: Dependant) -> bool:
     )
 
 
+def _field_names_in(annotation: object, seen: set[type]) -> set[str]:
+    """Recursively collect field names reachable from a type annotation:
+    through Annotated[...], Optional/Union (typing.Union and X | Y), and
+    generic containers (list, set, tuple, dict, Sequence, ...), into any
+    BaseModel found along the way. `seen` guards self-referential models."""
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        args = get_args(annotation)
+        return _field_names_in(args[0], seen) if args else set()
+    if origin is not None:
+        names: set[str] = set()
+        for arg in get_args(annotation):
+            names |= _field_names_in(arg, seen)
+        return names
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        if annotation in seen:
+            return set()
+        seen = seen | {annotation}
+        names = set(annotation.model_fields)
+        for field in annotation.model_fields.values():
+            names |= _field_names_in(field.annotation, seen)
+        return names
+    return set()
+
+
+def _body_field_names(route: APIRoute) -> set[str]:
+    names: set[str] = set()
+    for param in get_flat_dependant(route.dependant).body_params:
+        names.add(param.name)
+        names |= _field_names_in(param.field_info.annotation, set())
+    return names
+
+
 def unguarded_worker_routes(app: FastAPI) -> list[str]:
-    """Routes that take a `worker_id` (path or query) without require_visibility."""
+    """Routes that could expose a worker without the visibility check: a
+    `worker_id` path/query parameter without require_visibility, or a
+    `worker_id` anywhere in a request body (address workers in the path)."""
     offenders = []
     for route in app.routes:
         if not isinstance(route, APIRoute):
             continue
         flat = get_flat_dependant(route.dependant)
         params = {p.name for p in flat.path_params + flat.query_params}
-        if "worker_id" in params and not _has_guard(route.dependant):
+        unguarded_param = "worker_id" in params and not _has_guard(route.dependant)
+        if unguarded_param or "worker_id" in _body_field_names(route):
             offenders.append(route.path)
     return offenders

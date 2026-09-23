@@ -58,6 +58,12 @@ class Conflict(AppError):
     title = "Conflict"
 
 
+class UnprocessableEntity(AppError):
+    status_code = 422
+    code = "unprocessable"
+    title = "Unprocessable request"
+
+
 class TooManyRequests(AppError):
     status_code = 429
     code = "rate_limited"

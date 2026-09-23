@@ -1,5 +1,5 @@
 from datetime import timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -12,13 +12,15 @@ from app.core.outbox.models import OutboxEvent
 from app.core.time import utcnow
 from app.modules.identity.grants import GrantService
 from app.modules.identity.models import AccessGrant
-from tests.support import bearer, make_user
+from tests.support import bearer, make_user, make_worker
 
 
-def _body(granted_to: object, **overrides: object) -> dict[str, object]:
+def _body(
+    granted_to: object, *, scoped_worker_id: UUID | None = None, **overrides: object
+) -> dict[str, object]:
     body: dict[str, object] = {
         "granted_to_id": str(granted_to),
-        "scoped_worker_id": str(uuid4()),
+        "scoped_worker_id": str(scoped_worker_id or uuid4()),
         "reason": "Cross-team staffing for Project Volta",
         "expires_at": (utcnow() + timedelta(days=7)).isoformat(),
     }
@@ -31,9 +33,12 @@ async def test_people_ops_grants_pm_temporary_access(
 ) -> None:
     ops = await make_user(session, role=UserRole.PEOPLE_OPS)
     pm = await make_user(session, role=UserRole.PM)
+    worker, _ = await make_worker(session)
 
     response = await client.post(
-        "/api/v1/access-grants", json=_body(pm.id), headers=bearer(settings, ops)
+        "/api/v1/access-grants",
+        json=_body(pm.id, scoped_worker_id=worker.id),
+        headers=bearer(settings, ops),
     )
 
     assert response.status_code == 201
@@ -131,8 +136,11 @@ async def test_list_and_revoke(
 ) -> None:
     ops = await make_user(session, role=UserRole.PEOPLE_OPS)
     pm = await make_user(session, role=UserRole.PM)
+    worker, _ = await make_worker(session)
     headers = bearer(settings, ops)
-    created = await client.post("/api/v1/access-grants", json=_body(pm.id), headers=headers)
+    created = await client.post(
+        "/api/v1/access-grants", json=_body(pm.id, scoped_worker_id=worker.id), headers=headers
+    )
     grant_id = created.json()["id"]
 
     listed = await client.get(
@@ -162,18 +170,19 @@ async def test_revoking_unknown_grant_is_404(
 
 async def test_sweep_records_lapsed_grants_once(session: AsyncSession) -> None:
     pm = await make_user(session, role=UserRole.PM)
+    worker, _ = await make_worker(session)
     lapsed_at = utcnow() - timedelta(minutes=3)
     session.add_all(
         [
             AccessGrant(
                 granted_to_id=pm.id,
-                scoped_worker_id=uuid4(),
+                scoped_worker_id=worker.id,
                 reason="old cover",
                 expires_at=lapsed_at,
             ),
             AccessGrant(
                 granted_to_id=pm.id,
-                scoped_worker_id=uuid4(),
+                scoped_worker_id=worker.id,
                 reason="live cover",
                 expires_at=utcnow() + timedelta(days=1),
             ),
@@ -192,3 +201,18 @@ async def test_sweep_records_lapsed_grants_once(session: AsyncSession) -> None:
     assert expired.revoked_at == lapsed_at
     actions = (await session.scalars(select(AuditLog.action))).all()
     assert actions == ["access_grant.expired"]
+
+
+async def test_grant_for_unknown_worker_is_rejected(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    ops = await make_user(session, role=UserRole.PEOPLE_OPS)
+    pm = await make_user(session, role=UserRole.PM)
+
+    response = await client.post(
+        "/api/v1/access-grants", json=_body(pm.id), headers=bearer(settings, ops)
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "grant_worker_not_found"
+    assert (await session.scalars(select(AccessGrant))).all() == []

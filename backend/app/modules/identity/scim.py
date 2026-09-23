@@ -43,27 +43,115 @@ def _parse_bool(value: Any) -> bool:
     raise _invalid("'active' must be a boolean")
 
 
+_SUPPORTED_OPS = ("add", "replace", "remove")
+_MANAGED_PATHS = ("active", "roles")
+
+
+def _unsupported(detail: str) -> BadRequest:
+    return BadRequest(detail, code="scim_unsupported_operation")
+
+
 def _parse_role(value: Any) -> UserRole:
     try:
-        return UserRole(value[0]["value"])
+        role = UserRole(value[0]["value"])
     except (IndexError, KeyError, TypeError, ValueError) as exc:
         raise _invalid('\'roles\' must be a list like [{"value": "pm"}]') from exc
+    if role is UserRole.WORKER:
+        raise _invalid("Staff accounts cannot be given the worker role")
+    return role
+
+
+_CORE_USER_URN = "urn:ietf:params:scim:schemas:core:2.0:user:"
+_CORE_USER_SCHEMA = _CORE_USER_URN.rstrip(":")
+
+
+def _strip_urn(path: str) -> str:
+    """RFC 7644 §3.10 allows fully qualified paths. Strip the core User schema;
+    for any other URN keep only the attribute after the last ':' so a managed
+    attribute in a foreign schema is rejected rather than silently ignored.
+    The filter (if any) is cut off first, so a colon inside a filter value
+    (`roles[value eq "a:b"]`) is never mistaken for the schema/attribute
+    separator."""
+    lowered = path.lower()
+    if lowered.startswith(_CORE_USER_URN):
+        return path[len(_CORE_USER_URN) :]
+    if lowered.startswith("urn:"):
+        attribute = path.split("[", 1)[0].rsplit(":", 1)[-1]
+        if attribute.split(".")[0].lower() in _MANAGED_PATHS:
+            raise _unsupported(f"'{path}' is not a supported attribute path")
+    return path
+
+
+def _normalized_key(key: str) -> str:
+    """A path-less value dict may key an attribute by its fully qualified
+    name (RFC 7644 §3.10 example 8); normalize it exactly like a path."""
+    return _strip_urn(key).lower()
+
+
+def _flatten_value_dict(value: Any) -> dict[str, Any]:
+    """Flattens a path-less operation's value dict. A key may be a plain or
+    fully qualified attribute name, normalized via `_normalized_key`, or the
+    bare core User schema URN with a nested dict of attributes — RFC 7644
+    §3.10's other fully-qualified form. Either way a managed attribute is
+    never silently dropped because of its key's shape."""
+    if not isinstance(value, dict):
+        return {}
+    flattened: dict[str, Any] = {}
+    for key, val in value.items():
+        if isinstance(key, str) and key.lower() == _CORE_USER_SCHEMA:
+            if not isinstance(val, dict):
+                raise _unsupported(f"'{key}' must be an object of attributes")
+            flattened.update(_flatten_value_dict(val))
+        else:
+            flattened[_normalized_key(key)] = val
+    return flattened
+
+
+def _normalize(path: str | None) -> str | None:
+    """SCIM attribute names are case-insensitive (RFC 7643 §2.1) and may carry
+    a value filter (`roles[value eq "pm"]`) or a sub-attribute (`name.givenName`)
+    that this dispatch ignores the qualifier of. A path may also be fully
+    qualified with a schema URN (RFC 7644 §3.10)."""
+    if path is None:
+        return None
+    return _strip_urn(path).split("[")[0].split(".")[0].lower()
+
+
+def _dict_keys_lower(value: Any) -> set[str]:
+    return set(_flatten_value_dict(value))
 
 
 def _interpret(patch: ScimPatch) -> _Changes:
+    """Applies `active` and `roles`. Other attributes (names, emails, manager)
+    are accepted and ignored: this system does not store them."""
     changes = _Changes()
     for operation in patch.operations:
-        if operation.op.lower() not in ("replace", "add"):
+        op = operation.op.lower()
+        if op not in _SUPPORTED_OPS:
+            raise _unsupported(f"Unsupported SCIM operation '{operation.op}'")
+        normalized = _normalize(operation.path)
+        if op == "remove":
+            if normalized in _MANAGED_PATHS or (
+                operation.path is None and _dict_keys_lower(operation.value) & set(_MANAGED_PATHS)
+            ):
+                raise _unsupported(
+                    f"'{operation.path or operation.value}' cannot be removed; replace it instead"
+                )
             continue
-        if operation.path == "active":
-            changes.active = _parse_bool(operation.value)
-        elif operation.path == "roles":
-            changes.role = _parse_role(operation.value)
+        if normalized in _MANAGED_PATHS:
+            stripped = _strip_urn(operation.path) if operation.path is not None else None
+            if stripped is not None and ("[" in stripped or "." in stripped):
+                raise _unsupported(f"'{operation.path}' is not supported; use a plain path")
+            if normalized == "active":
+                changes.active = _parse_bool(operation.value)
+            else:
+                changes.role = _parse_role(operation.value)
         elif operation.path is None and isinstance(operation.value, dict):
-            if "active" in operation.value:
-                changes.active = _parse_bool(operation.value["active"])
-            if "roles" in operation.value:
-                changes.role = _parse_role(operation.value["roles"])
+            for key, value in _flatten_value_dict(operation.value).items():
+                if key == "active":
+                    changes.active = _parse_bool(value)
+                elif key == "roles":
+                    changes.role = _parse_role(value)
     return changes
 
 

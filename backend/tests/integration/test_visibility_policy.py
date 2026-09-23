@@ -9,7 +9,7 @@ from app.core.enums import UserRole
 from app.core.time import utcnow
 from app.modules.identity.models import AccessGrant
 from app.modules.identity.visibility import Visibility, VisibilityPolicy
-from tests.support import make_user
+from tests.support import make_user, make_worker
 
 
 def _actor(role: UserRole, worker_id: UUID | None = None) -> Actor:
@@ -63,7 +63,8 @@ async def _grant(session: AsyncSession, pm_id: UUID, worker_id: UUID, **override
 
 async def test_active_grant_gives_pm_detail(session: AsyncSession) -> None:
     pm = await make_user(session, role=UserRole.PM)
-    worker_id = uuid4()
+    worker, _ = await make_worker(session)
+    worker_id = worker.id
     await _grant(session, pm.id, worker_id)
 
     level = await VisibilityPolicy().level(session, Actor(pm.id, UserRole.PM), worker_id)
@@ -82,7 +83,8 @@ async def test_expired_or_revoked_grant_gives_nothing(
     session: AsyncSession, overrides: dict[str, object]
 ) -> None:
     pm = await make_user(session, role=UserRole.PM)
-    worker_id = uuid4()
+    worker, _ = await make_worker(session)
+    worker_id = worker.id
     await _grant(session, pm.id, worker_id, **overrides)
 
     level = await VisibilityPolicy().level(session, Actor(pm.id, UserRole.PM), worker_id)
