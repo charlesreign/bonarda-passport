@@ -11,6 +11,7 @@ bonarda-passport/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py                        # app factory; mounts each module's router under /api/v1
+│   │   ├── wiring.py                      # handler registry + visibility sources (composition root)
 │   │   ├── core/                          # shared kernel — any module may import from here
 │   │   │   ├── config.py                  # Pydantic Settings
 │   │   │   ├── enums.py
@@ -143,6 +144,7 @@ bonarda-passport/
 - **Pure logic is isolated** in `standing/rules.py`, `roster/scoring.py` and `roster/first_shot.py` — no I/O, fully unit-testable against policy fixtures.
 - **Integrations are adapters** behind protocols in `integrations/*/base.py`. Fakes are the default in dev and the demo; real providers are selected by config.
 - **The frontend is split by audience** (`features/passport`, `features/console`, `features/ops`), each a lazy route bundle. The API client is generated from the backend's OpenAPI schema; CI fails if the committed `schema.d.ts` differs from a fresh generation.
+- **Composition root.** `app/main.py` (API), `app/worker/` (Arq) and `app/wiring.py` (event handler registry and visibility sources) are the only places that know about every module. Modules never import them (import-linter), and `tests/unit/test_module_boundaries.py` enforces that modules use each other only through `service` and `schemas`. Staff OIDC lives in `modules/identity/oidc.py` rather than `integrations/`, because identity is its only user.
 
 ---
 
@@ -195,7 +197,7 @@ docker compose -f ../infra/docker-compose.yml up -d postgres redis keycloak mail
 alembic upgrade head
 python -m app.seed                   # dev seed data
 
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:create_app --factory --reload --port 8000
 arq app.worker.settings.WorkerSettings    # second terminal: relay, handlers, cron
 ```
 
