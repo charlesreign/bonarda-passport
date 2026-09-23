@@ -43,17 +43,35 @@ def _parse_bool(value: Any) -> bool:
     raise _invalid("'active' must be a boolean")
 
 
+_SUPPORTED_OPS = ("add", "replace", "remove")
+_MANAGED_PATHS = ("active", "roles")
+
+
+def _unsupported(detail: str) -> BadRequest:
+    return BadRequest(detail, code="scim_unsupported_operation")
+
+
 def _parse_role(value: Any) -> UserRole:
     try:
-        return UserRole(value[0]["value"])
+        role = UserRole(value[0]["value"])
     except (IndexError, KeyError, TypeError, ValueError) as exc:
         raise _invalid('\'roles\' must be a list like [{"value": "pm"}]') from exc
+    if role is UserRole.WORKER:
+        raise _invalid("Staff accounts cannot be given the worker role")
+    return role
 
 
 def _interpret(patch: ScimPatch) -> _Changes:
+    """Applies `active` and `roles`. Other attributes (names, emails, manager)
+    are accepted and ignored: this system does not store them."""
     changes = _Changes()
     for operation in patch.operations:
-        if operation.op.lower() not in ("replace", "add"):
+        op = operation.op.lower()
+        if op not in _SUPPORTED_OPS:
+            raise _unsupported(f"Unsupported SCIM operation '{operation.op}'")
+        if op == "remove":
+            if operation.path in _MANAGED_PATHS:
+                raise _unsupported(f"'{operation.path}' cannot be removed; replace it instead")
             continue
         if operation.path == "active":
             changes.active = _parse_bool(operation.value)

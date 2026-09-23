@@ -145,3 +145,18 @@ async def test_verify_rejects_unknown_token(client: AsyncClient) -> None:
 
     assert response.status_code == 401
     assert response.json()["code"] == "magic_link_invalid"
+
+
+async def test_verify_rejects_link_if_account_is_no_longer_a_worker(
+    client: AsyncClient, session: AsyncSession, mailer: RecordingMailer, drain: Drain
+) -> None:
+    worker = await make_user(session, role=UserRole.WORKER, email="kofi@example.com")
+    await client.post("/api/v1/auth/magic-link", json={"email": "kofi@example.com"})
+    await drain()
+    worker.role = UserRole.PM
+    await session.commit()
+
+    response = await client.post("/api/v1/auth/magic-link/verify", json={"token": mailer.token()})
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "magic_link_invalid"

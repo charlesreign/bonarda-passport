@@ -1,20 +1,32 @@
 import json
 import secrets
+from datetime import timedelta
+from uuid import UUID
 
+import structlog
 from redis.asyncio import Redis
+from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit.writer import write_audit
 from app.core.config import Settings
 from app.core.enums import AccountStatus, AuthProvider, UserRole
 from app.core.errors import BadRequest, Conflict, Forbidden
+from app.core.time import utcnow
 from app.modules.identity.models import UserAccount
 from app.modules.identity.oidc import IdTokenClaims, OidcProvider
-from app.modules.identity.repository import UserRepository, normalize_email
+from app.modules.identity.repository import (
+    RefreshSessionRepository,
+    UserRepository,
+    normalize_email,
+)
+from app.modules.identity.revocation import mark_revoked
 
 STATE_PREFIX = "oidc:state:"
 STATE_TTL_SECONDS = 600
 ROLE_PRECEDENCE = (UserRole.ADMIN, UserRole.PEOPLE_OPS, UserRole.FINANCE, UserRole.PM)
+
+log = structlog.get_logger(__name__)
 
 
 class OidcLoginService:
@@ -107,4 +119,16 @@ class OidcLoginService:
                 after={"role": role.value},
                 reason="idp_group_membership",
             )
+            await RefreshSessionRepository(self.session).revoke_all_for_user(
+                user.id, utcnow(), reason="admin"
+            )
+            await self._mark_revoked_quietly(user.id)
         return user
+
+    async def _mark_revoked_quietly(self, user_id: UUID) -> None:
+        # One second in the past: tokens from before this login stop working,
+        # while the session this login is about to issue stays valid.
+        try:
+            await mark_revoked(self.redis, self.settings, user_id, utcnow() - timedelta(seconds=1))
+        except (RedisError, OSError):
+            log.error("auth.revocation_marker_unavailable", user_id=str(user_id))

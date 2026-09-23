@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import timedelta
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -8,11 +9,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit.models import AuditLog
+from app.core.config import Settings
 from app.core.enums import AccountStatus, AuthProvider, UserRole
-from app.modules.identity.models import UserAccount
+from app.core.time import utcnow
+from app.modules.identity.models import RefreshSession, UserAccount
 from app.modules.identity.oidc import IdTokenClaims
 from app.modules.identity.router import OIDC_STATE_COOKIE, REFRESH_COOKIE
-from tests.support import make_user
+from app.modules.identity.sessions import SessionService
+from tests.support import bearer, make_user
 
 
 @dataclass
@@ -233,3 +237,34 @@ async def test_callback_from_another_browser_is_rejected(
     assert response.status_code == 400
     assert response.json()["code"] == "oidc_state_mismatch"
     assert (await session.scalars(select(UserAccount))).all() == []
+
+
+async def test_role_change_at_login_revokes_other_sessions(
+    client: AsyncClient, session: AsyncSession, idp: FakeOidcProvider, settings: Settings
+) -> None:
+    user = await make_user(
+        session, role=UserRole.PM, email="ama@bonarda.works", oidc_subject="kc-ama"
+    )
+    await SessionService(session, settings).start(user, amr=["otp"])
+    await session.commit()
+    old_token = bearer(settings, user, now=utcnow() - timedelta(seconds=5))
+    idp.claims = IdTokenClaims(
+        subject="kc-ama",
+        email="ama@bonarda.works",
+        amr=["otp"],
+        acr=None,
+        groups=["bonarda-finance"],
+    )
+    state = await _login(client)
+
+    response = await client.get("/api/v1/auth/oidc/callback", params={"code": "c", "state": state})
+
+    assert response.status_code == 302
+    sessions = (
+        await session.scalars(select(RefreshSession).where(RefreshSession.user_id == user.id))
+    ).all()
+    revoked = [s for s in sessions if s.revoked_at is not None]
+    assert [s.revoked_reason for s in revoked] == ["admin"]
+    assert len(sessions) == 2  # the old one (revoked) and the one this login issued
+    stale = await client.get("/api/v1/me", headers=old_token)
+    assert stale.json()["code"] == "session_revoked"

@@ -67,7 +67,7 @@ class MagicLinkService:
         if user_id is None:
             raise invalid
         user = await self.users.get(UUID(user_id))
-        if user is None or user.status is not AccountStatus.ACTIVE:
+        if user is None or not _eligible(user):
             raise invalid
         await write_audit(
             self.session,

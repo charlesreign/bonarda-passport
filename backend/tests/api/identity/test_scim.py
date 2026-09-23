@@ -238,3 +238,60 @@ async def test_scim_requires_the_scim_token(client: AsyncClient, auth: str | Non
 
     assert response.status_code == 401
     assert response.json()["code"] == "scim_unauthorized"
+
+
+@pytest.mark.parametrize("path", ["active", "roles"])
+async def test_removing_a_managed_attribute_is_rejected(
+    client: AsyncClient, session: AsyncSession, path: str
+) -> None:
+    await make_user(session, oidc_subject="kc-ama")
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama", json=_patch({"op": "remove", "path": path}), headers=SCIM
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "scim_unsupported_operation"
+
+
+async def test_removing_an_unmanaged_attribute_is_ignored(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    user = await make_user(session, oidc_subject="kc-ama")
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama",
+        json=_patch({"op": "remove", "path": "name.givenName"}),
+        headers=SCIM,
+    )
+
+    assert response.status_code == 200
+    await session.refresh(user)
+    assert user.status is AccountStatus.ACTIVE
+
+
+async def test_unknown_operation_is_rejected(client: AsyncClient, session: AsyncSession) -> None:
+    await make_user(session, oidc_subject="kc-ama")
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama",
+        json=_patch({"op": "copy", "path": "active", "value": False}),
+        headers=SCIM,
+    )
+
+    assert response.json()["code"] == "scim_unsupported_operation"
+
+
+async def test_staff_account_cannot_be_given_the_worker_role(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    await make_user(session, oidc_subject="kc-ama")
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama",
+        json=_patch({"op": "replace", "path": "roles", "value": [{"value": "worker"}]}),
+        headers=SCIM,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "scim_invalid_value"
