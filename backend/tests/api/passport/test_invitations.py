@@ -168,3 +168,17 @@ async def test_invalid_invitations_are_rejected(
     response = await client.post(URL, json=BODY | override, headers=bearer(settings, pm))
 
     assert response.status_code == 422
+
+
+async def test_invitation_region_must_be_configured(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    pm = await make_user(session, role=UserRole.PM)
+
+    response = await client.post(
+        URL, json=BODY | {"data_region": "ZZ"}, headers=bearer(settings, pm)
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "unknown_data_region"
+    assert (await session.scalars(select(Worker))).all() == []

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query, Response
 
 from app.core.context import Actor
 from app.core.db.session import SessionDep
+from app.core.deps import SettingsDep
 from app.modules.identity.service import (
     CurrentActor,
     Permission,
@@ -97,9 +98,13 @@ async def set_my_consent(
 
 @router.post("/workers/invitations", status_code=201)
 async def invite_worker(
-    body: InvitationCreate, actor: Inviter, session: SessionDep, response: Response
+    body: InvitationCreate,
+    actor: Inviter,
+    session: SessionDep,
+    settings: SettingsDep,
+    response: Response,
 ) -> InvitationRead:
-    result = await InvitationService(session).invite(actor, body)
+    result = await InvitationService(session, settings).invite(actor, body)
     if result.resent:
         response.status_code = 200
     return result

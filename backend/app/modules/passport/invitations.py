@@ -1,7 +1,9 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit.writer import write_audit
+from app.core.config import Settings
 from app.core.context import Actor
+from app.core.errors import BadRequest
 from app.core.outbox.writer import emit_event
 from app.modules.identity.service import (
     find_worker_account,
@@ -18,11 +20,14 @@ class InvitationService:
     """Standard onboarding path for first-time workers (FR-5.1): the PM creates
     the passport and account; the worker completes the profile themselves."""
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, settings: Settings) -> None:
         self.session = session
+        self.settings = settings
         self.workers = WorkerRepository(session)
 
     async def invite(self, actor: Actor, data: InvitationCreate) -> InvitationRead:
+        if data.data_region not in self.settings.data_regions:
+            raise BadRequest("Unknown data region", code="unknown_data_region")
         email = data.email.strip().lower()
         resent = await self._resend_if_still_invited(actor, email)
         if resent is not None:

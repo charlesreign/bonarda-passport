@@ -8,6 +8,7 @@ from redis.asyncio import Redis
 from app.core.config import Settings
 from app.core.mail import Mailer
 from app.core.outbox.registry import HandlerRegistry
+from app.modules.engagements import handlers as engagements_handlers
 from app.modules.identity import handlers as identity_handlers
 from app.modules.identity.service import VisibilitySource
 
@@ -24,6 +25,7 @@ def build_registry(deps: HandlerDeps) -> HandlerRegistry:
     identity_handlers.register(
         registry, redis=deps.redis, settings=deps.settings, mailer=deps.mailer
     )
+    engagements_handlers.register(registry)
     return registry
 
 

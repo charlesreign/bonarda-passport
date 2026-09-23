@@ -3,12 +3,13 @@
 
 from app.modules.identity.accounts import (
     account_contact,
+    active_pm_ids,
     find_worker_account,
     provision_worker_account,
     request_sign_in_link,
 )
 from app.modules.identity.dependencies import CurrentActor, require_permission
-from app.modules.identity.permissions import Permission
+from app.modules.identity.permissions import Permission, has_permission
 from app.modules.identity.visibility import (
     Visibility,
     VisibilityPolicy,
@@ -23,7 +24,9 @@ __all__ = [
     "VisibilityPolicy",
     "VisibilitySource",
     "account_contact",
+    "active_pm_ids",
     "find_worker_account",
+    "has_permission",
     "provision_worker_account",
     "request_sign_in_link",
     "require_permission",

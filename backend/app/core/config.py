@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     # Unset in dev/test means mail is written to the log instead.
     smtp_url: SecretStr | None = None
     mail_from: str = "Bonarda Works <no-reply@bonarda.works>"
+    # Regions a worker or project can belong to (NFR-4.3). Pilot: Ghana + one EU country.
+    data_regions: list[str] = Field(default_factory=lambda: ["GH", "EU"])
 
     @model_validator(mode="after")
     def _require_production_hardening(self) -> Self:

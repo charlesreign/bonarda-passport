@@ -1,13 +1,15 @@
 """Account operations other modules need (via identity.service)."""
 
+from collections.abc import Iterable
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit.writer import write_audit
 from app.core.context import Actor
-from app.core.enums import AuthProvider, UserRole
+from app.core.enums import AccountStatus, AuthProvider, UserRole
 from app.core.errors import Conflict, NotFound
 from app.core.outbox.writer import emit_event
 from app.modules.identity.models import UserAccount
@@ -77,3 +79,18 @@ async def find_worker_account(session: AsyncSession, email: str) -> WorkerAccoun
     if user is None or user.role is not UserRole.WORKER or user.worker_id is None:
         return None
     return WorkerAccountRef(user_id=user.id, worker_id=user.worker_id)
+
+
+async def active_pm_ids(session: AsyncSession, user_ids: Iterable[UUID]) -> set[UUID]:
+    """The subset of `user_ids` that are active project managers."""
+    ids = list(user_ids)
+    if not ids:
+        return set()
+    rows = await session.scalars(
+        select(UserAccount.id).where(
+            UserAccount.id.in_(ids),
+            UserAccount.role == UserRole.PM,
+            UserAccount.status == AccountStatus.ACTIVE,
+        )
+    )
+    return set(rows.all())

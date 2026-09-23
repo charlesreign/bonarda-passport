@@ -14,6 +14,7 @@ from app.core.outbox.models import OutboxEvent
 from app.core.outbox.processing import process_event
 from app.core.outbox.registry import HandlerRegistry
 from app.core.time import utcnow
+from app.modules.engagements.models import Project, ProjectStaff
 from app.modules.identity.models import UserAccount
 from app.modules.identity.tokens import issue_access_token
 from app.modules.passport.enums import OnboardingState, WorkerStatus, WorkerType
@@ -104,6 +105,27 @@ class RecordingMailer:
         match = re.search(r"token=([A-Za-z0-9_-]+)", self.sent[-1]["body"])
         assert match is not None
         return match.group(1)
+
+
+async def make_project(
+    session: AsyncSession,
+    *,
+    staff: list[UserAccount] | None = None,
+    data_region: str = "GH",
+    name: str = "Project Volta",
+    required_skill_ids: list[UUID] | None = None,
+) -> Project:
+    project = Project(
+        name=name, data_region=data_region, required_skill_ids=required_skill_ids or []
+    )
+    session.add(project)
+    await session.flush()
+    for user in staff or []:
+        session.add(
+            ProjectStaff(project_id=project.id, user_account_id=user.id, active_from=utcnow())
+        )
+    await session.commit()
+    return project
 
 
 async def drain_outbox(
