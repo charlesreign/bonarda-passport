@@ -41,7 +41,7 @@ class MagicLinkVerify(BaseModel):
     token: str
 
 
-SignInPurpose = Literal["sign_in"]
+SignInPurpose = Literal["sign_in", "invitation"]
 
 
 class MagicLinkRequested(DomainEvent):

@@ -17,8 +17,8 @@ from app.modules.identity.repository import UserRepository, normalize_email
 from app.modules.identity.tokens import hash_token, new_opaque_token
 
 TOKEN_PREFIX = "magiclink:"
-# i18n key prefix per purpose; Task 8 adds "invitation".
-_TEMPLATES = {"sign_in": "magic_link"}
+# i18n key prefix per purpose.
+_TEMPLATES = {"sign_in": "magic_link", "invitation": "invitation"}
 log = structlog.get_logger(__name__)
 
 

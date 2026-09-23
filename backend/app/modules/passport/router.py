@@ -15,10 +15,13 @@ from app.modules.identity.service import (
 from app.modules.passport.consents import ConsentService
 from app.modules.passport.dependencies import WorkerEditor, WorkerReader
 from app.modules.passport.enums import ConsentPurpose
+from app.modules.passport.invitations import InvitationService
 from app.modules.passport.profile import ProfileService
 from app.modules.passport.schemas import (
     ConsentRead,
     ConsentUpdate,
+    InvitationCreate,
+    InvitationRead,
     SkillClaimCreate,
     SkillCreate,
     SkillRead,
@@ -32,6 +35,7 @@ from app.modules.passport.skills import ClaimService, SkillService
 router = APIRouter(prefix="/api/v1", tags=["passport"])
 
 SkillManager = Annotated[Actor, Depends(require_permission(Permission.SKILL_MANAGE))]
+Inviter = Annotated[Actor, Depends(require_permission(Permission.WORKER_INVITE))]
 
 
 @router.get("/skills")
@@ -89,6 +93,13 @@ async def set_my_consent(
     purpose: ConsentPurpose, body: ConsentUpdate, who: WorkerEditor, session: SessionDep
 ) -> ConsentRead:
     return await ConsentService(session).set(who, purpose, body.granted)
+
+
+@router.post("/workers/invitations", status_code=201)
+async def invite_worker(
+    body: InvitationCreate, actor: Inviter, session: SessionDep
+) -> InvitationRead:
+    return await InvitationService(session).invite(actor, body)
 
 
 @router.get("/workers/{worker_id}")

@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import (
     BaseModel,
     ConfigDict,
+    EmailStr,
     Field,
     StringConstraints,
     field_validator,
@@ -148,3 +149,22 @@ class ConsentChanged(DomainEvent):
     event_type: ClassVar[str] = "passport.consent_changed"
     purpose: ConsentPurpose
     granted: bool
+
+
+class InvitationCreate(BaseModel):
+    email: EmailStr
+    full_name: str = Field(min_length=1, max_length=200)
+    worker_type: WorkerType
+    data_region: str = Field(pattern=r"^[A-Z]{2,8}$")
+    locale: Locale = "en"
+
+
+class InvitationRead(BaseModel):
+    worker_id: UUID
+    email: str
+    onboarding_state: OnboardingState
+
+
+class WorkerInvited(DomainEvent):
+    event_type: ClassVar[str] = "passport.worker_invited"
+    invited_by_id: UUID
