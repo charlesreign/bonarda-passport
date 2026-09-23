@@ -3,7 +3,8 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.passport.models import Skill, SkillClaim, Worker
+from app.modules.passport.enums import ConsentPurpose
+from app.modules.passport.models import Consent, Skill, SkillClaim, Worker
 
 
 class WorkerRepository:
@@ -76,3 +77,24 @@ class SkillClaimRepository:
 
     async def delete(self, claim: SkillClaim) -> None:
         await self.session.delete(claim)
+
+
+class ConsentRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def list_for_worker(self, worker_id: UUID) -> list[Consent]:
+        return list(
+            (
+                await self.session.scalars(select(Consent).where(Consent.worker_id == worker_id))
+            ).all()
+        )
+
+    async def get(self, worker_id: UUID, purpose: ConsentPurpose) -> Consent | None:
+        return await self.session.scalar(
+            select(Consent).where(Consent.worker_id == worker_id, Consent.purpose == purpose)
+        )
+
+    def add(self, consent: Consent) -> Consent:
+        self.session.add(consent)
+        return consent

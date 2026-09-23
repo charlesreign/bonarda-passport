@@ -12,9 +12,13 @@ from app.modules.identity.service import (
     require_permission,
     require_visibility,
 )
+from app.modules.passport.consents import ConsentService
 from app.modules.passport.dependencies import WorkerEditor, WorkerReader
+from app.modules.passport.enums import ConsentPurpose
 from app.modules.passport.profile import ProfileService
 from app.modules.passport.schemas import (
+    ConsentRead,
+    ConsentUpdate,
     SkillClaimCreate,
     SkillCreate,
     SkillRead,
@@ -73,6 +77,18 @@ async def update_my_passport(
 @router.post("/workers/me/onboarding/complete")
 async def complete_onboarding(who: WorkerEditor, session: SessionDep) -> WorkerSelf:
     return await ProfileService(session).complete_onboarding(who)
+
+
+@router.get("/workers/me/consents")
+async def list_my_consents(who: WorkerReader, session: SessionDep) -> list[ConsentRead]:
+    return await ConsentService(session).list_for(who.worker_id)
+
+
+@router.put("/workers/me/consents/{purpose}")
+async def set_my_consent(
+    purpose: ConsentPurpose, body: ConsentUpdate, who: WorkerEditor, session: SessionDep
+) -> ConsentRead:
+    return await ConsentService(session).set(who, purpose, body.granted)
 
 
 @router.get("/workers/{worker_id}")

@@ -15,6 +15,7 @@ from app.core.i18n import Locale
 from app.core.outbox.events import DomainEvent
 from app.modules.passport.enums import (
     AvailabilityStatus,
+    ConsentPurpose,
     OnboardingState,
     StandingTier,
     VerificationStatus,
@@ -129,3 +130,21 @@ class WorkerUpdate(BaseModel):
         if self.available_from is not None and not wants_date:
             raise ValueError("available_from needs availability_status=available_from")
         return self
+
+
+class ConsentRead(BaseModel):
+    purpose: ConsentPurpose
+    granted: bool
+    legal_basis: str | None
+    granted_at: datetime | None
+    withdrawn_at: datetime | None
+
+
+class ConsentUpdate(BaseModel):
+    granted: bool
+
+
+class ConsentChanged(DomainEvent):
+    event_type: ClassVar[str] = "passport.consent_changed"
+    purpose: ConsentPurpose
+    granted: bool
