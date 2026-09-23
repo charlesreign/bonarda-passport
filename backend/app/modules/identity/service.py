@@ -3,6 +3,7 @@
 
 from app.modules.identity.accounts import (
     account_contact,
+    find_worker_account,
     provision_worker_account,
     request_sign_in_link,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "VisibilityPolicy",
     "VisibilitySource",
     "account_contact",
+    "find_worker_account",
     "provision_worker_account",
     "request_sign_in_link",
     "require_permission",

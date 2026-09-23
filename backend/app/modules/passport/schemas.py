@@ -163,6 +163,7 @@ class InvitationRead(BaseModel):
     worker_id: UUID
     email: str
     onboarding_state: OnboardingState
+    resent: bool = False
 
 
 class WorkerInvited(DomainEvent):

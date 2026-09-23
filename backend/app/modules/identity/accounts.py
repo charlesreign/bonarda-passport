@@ -11,8 +11,13 @@ from app.core.enums import AuthProvider, UserRole
 from app.core.errors import Conflict, NotFound
 from app.core.outbox.writer import emit_event
 from app.modules.identity.models import UserAccount
-from app.modules.identity.repository import UserRepository
-from app.modules.identity.schemas import AccountContact, MagicLinkRequested, SignInPurpose
+from app.modules.identity.repository import UserRepository, normalize_email
+from app.modules.identity.schemas import (
+    AccountContact,
+    MagicLinkRequested,
+    SignInPurpose,
+    WorkerAccountRef,
+)
 
 
 async def account_contact(session: AsyncSession, user_id: UUID) -> AccountContact:
@@ -35,6 +40,7 @@ async def provision_worker_account(
 ) -> UUID:
     """Creates the sign-in account a worker's passport hangs off (FR-9.2, FR-9.6)."""
     users = UserRepository(session)
+    email = normalize_email(email)
     try:
         async with session.begin_nested():
             user = users.add(
@@ -49,12 +55,25 @@ async def provision_worker_account(
             await session.flush()
     except IntegrityError as exc:
         raise Conflict("An account with this email already exists", code="email_in_use") from exc
+    # Audit rows about workers carry no contact data (spec §6.3 erasure): the
+    # append-only audit log rejects UPDATE/DELETE, so an email written here
+    # would survive the worker's own erasure. target_id identifies the row.
     await write_audit(
         session,
         actor=actor,
         action="user.provisioned",
         target_type="user_account",
         target_id=user.id,
-        after={"email": user.email, "role": UserRole.WORKER.value},
+        after={"role": UserRole.WORKER.value},
     )
     return user.id
+
+
+async def find_worker_account(session: AsyncSession, email: str) -> WorkerAccountRef | None:
+    """Looks up an existing worker sign-in account by email (normalized here so
+    audit/lookups agree), for an idempotent re-invite. None unless the account
+    exists, has role WORKER and a worker_id."""
+    user = await UserRepository(session).get_by_email(normalize_email(email))
+    if user is None or user.role is not UserRole.WORKER or user.worker_id is None:
+        return None
+    return WorkerAccountRef(user_id=user.id, worker_id=user.worker_id)

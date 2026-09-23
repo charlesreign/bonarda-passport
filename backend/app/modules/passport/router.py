@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 
 from app.core.context import Actor
 from app.core.db.session import SessionDep
@@ -97,9 +97,12 @@ async def set_my_consent(
 
 @router.post("/workers/invitations", status_code=201)
 async def invite_worker(
-    body: InvitationCreate, actor: Inviter, session: SessionDep
+    body: InvitationCreate, actor: Inviter, session: SessionDep, response: Response
 ) -> InvitationRead:
-    return await InvitationService(session).invite(actor, body)
+    result = await InvitationService(session).invite(actor, body)
+    if result.resent:
+        response.status_code = 200
+    return result
 
 
 @router.get("/workers/{worker_id}")

@@ -92,3 +92,12 @@ class ScimPatch(BaseModel):
 class AccessRevoked(DomainEvent):
     event_type: ClassVar[str] = "identity.access_revoked"
     reason: Literal["deactivated", "role_changed"]
+
+
+class WorkerAccountRef(BaseModel):
+    """Identifies an existing worker's sign-in account, for callers (e.g.
+    passport's re-invite path) that need to act on it without importing
+    identity's models."""
+
+    user_id: UUID
+    worker_id: UUID
