@@ -19,7 +19,7 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     op.add_column("refresh_sessions", sa.Column("revoked_reason", sa.String(20), nullable=True))
     op.create_check_constraint(
-        "ck_refresh_sessions_revoked_reason_valid",
+        op.f("ck_refresh_sessions_revoked_reason_valid"),
         "refresh_sessions",
         "revoked_reason IS NULL OR revoked_reason IN ('rotated','logout','admin','reuse')",
     )
@@ -27,6 +27,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_constraint(
-        "ck_refresh_sessions_revoked_reason_valid", "refresh_sessions", type_="check"
+        op.f("ck_refresh_sessions_revoked_reason_valid"), "refresh_sessions", type_="check"
     )
     op.drop_column("refresh_sessions", "revoked_reason")

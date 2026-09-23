@@ -1,6 +1,6 @@
 import asyncio
 
-from sqlalchemy import Connection, inspect, text
+from sqlalchemy import CheckConstraint, Connection, inspect, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.pool import NullPool
 from testcontainers.postgres import PostgresContainer
@@ -26,6 +26,27 @@ async def test_models_match_migrations(db_engine: AsyncEngine) -> None:
     async with db_engine.connect() as conn:
         differences = await conn.run_sync(diff)
     assert differences == []
+
+
+async def test_check_constraint_names_match_models(db_engine: AsyncEngine) -> None:
+    # compare_metadata does not diff check constraints, so compare their names directly.
+    expected = {
+        (table.name, str(constraint.name))
+        for table in Base.metadata.sorted_tables
+        for constraint in table.constraints
+        if isinstance(constraint, CheckConstraint)
+    }
+    async with db_engine.connect() as conn:
+        result = await conn.execute(
+            text(
+                "SELECT rel.relname, con.conname FROM pg_constraint con "
+                "JOIN pg_class rel ON rel.oid = con.conrelid "
+                "JOIN pg_namespace ns ON ns.oid = rel.relnamespace "
+                "WHERE con.contype = 'c' AND ns.nspname = 'public'"
+            )
+        )
+        actual = {(row.relname, row.conname) for row in result}
+    assert actual == expected
 
 
 def test_downgrade_to_base_then_upgrade_round_trips(postgres: PostgresContainer) -> None:
