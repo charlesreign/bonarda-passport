@@ -21,7 +21,9 @@ def sent(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, dict[str, Any]]]:
 async def test_sends_plain_text_message_with_headers(
     sent: list[tuple[Any, dict[str, Any]]],
 ) -> None:
-    mailer = SmtpMailer("smtp://mailpit:1025", "Bonarda <no-reply@bonarda.works>")
+    mailer = SmtpMailer(
+        "smtp://mailpit:1025", "Bonarda <no-reply@bonarda.works>", require_tls=False
+    )
 
     await mailer.send(to="kofi@example.com", subject="Hello", body="Body text")
 
@@ -33,6 +35,18 @@ async def test_sends_plain_text_message_with_headers(
     assert (kwargs["hostname"], kwargs["port"], kwargs["use_tls"]) == ("mailpit", 1025, False)
     assert kwargs["username"] is None
     assert kwargs["password"] is None
+    assert kwargs["start_tls"] is None
+
+
+async def test_smtp_url_with_require_tls_forces_starttls(
+    sent: list[tuple[Any, dict[str, Any]]],
+) -> None:
+    mailer = SmtpMailer("smtp://relay:587", "no-reply@bonarda.works", require_tls=True)
+
+    await mailer.send(to="a@b.c", subject="s", body="b")
+
+    kwargs = sent[0][1]
+    assert kwargs["start_tls"] is True
 
 
 async def test_smtps_url_uses_implicit_tls_default_port_and_decoded_credentials(
@@ -49,6 +63,7 @@ async def test_smtps_url_uses_implicit_tls_default_port_and_decoded_credentials(
         True,
     )
     assert (kwargs["username"], kwargs["password"]) == ("apikey", "p@ss")
+    assert kwargs.get("start_tls") is not True
 
 
 @pytest.mark.parametrize("url", ["http://mail.example.com", "smtp://"])

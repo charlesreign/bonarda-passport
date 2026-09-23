@@ -1,15 +1,17 @@
 """Public interface of the integrations module."""
 
-from app.core.config import Settings
+from app.core.config import NON_PRODUCTION_ENVS, Settings
 from app.core.mail import ConsoleMailer, Mailer
 from app.modules.integrations.smtp import SmtpMailer
-
-NON_PRODUCTION_ENVS = frozenset({"dev", "test"})
 
 
 def build_mailer(settings: Settings) -> Mailer:
     if settings.smtp_url is not None:
-        return SmtpMailer(settings.smtp_url.get_secret_value(), settings.mail_from)
+        return SmtpMailer(
+            settings.smtp_url.get_secret_value(),
+            settings.mail_from,
+            require_tls=settings.env not in NON_PRODUCTION_ENVS,
+        )
     if settings.env in NON_PRODUCTION_ENVS:
         # ConsoleMailer logs full sign-in links: acceptable only on a
         # developer's own machine or in tests.

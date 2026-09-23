@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.enums import UserRole
 
-_NON_PRODUCTION_ENVS = {"dev", "test"}
+NON_PRODUCTION_ENVS: frozenset[str] = frozenset({"dev", "test"})
 _MIN_SECRET_LENGTH = 32
 _PLACEHOLDER = "change-me"
 
@@ -68,7 +68,7 @@ class Settings(BaseSettings):
         """Outside dev/test, refuse to start with a weak or placeholder secret,
         or with cookies allowed over plain HTTP — cheap to check once here
         instead of relying on every environment being configured correctly."""
-        if self.env in _NON_PRODUCTION_ENVS:
+        if self.env in NON_PRODUCTION_ENVS:
             return self
         _check_strong_secret(self.jwt_signing_key, field="jwt_signing_key")
         _check_strong_secret(self.scim_bearer_token, field="scim_bearer_token")

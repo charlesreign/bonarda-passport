@@ -20,3 +20,23 @@ def test_dev_and_test_without_smtp_log_to_console(settings: Settings) -> None:
 def test_production_without_smtp_refuses_to_start(settings: Settings) -> None:
     with pytest.raises(RuntimeError, match="mailer"):
         build_mailer(settings.model_copy(update={"env": "prod"}))
+
+
+def test_production_with_smtp_requires_tls(settings: Settings) -> None:
+    configured = settings.model_copy(
+        update={"env": "prod", "smtp_url": SecretStr("smtp://relay:587")}
+    )
+
+    mailer = build_mailer(configured)
+
+    assert isinstance(mailer, SmtpMailer)
+    assert mailer.requires_tls is True
+
+
+def test_dev_with_smtp_does_not_require_tls(settings: Settings) -> None:
+    configured = settings.model_copy(update={"smtp_url": SecretStr("smtp://mailpit:1025")})
+
+    mailer = build_mailer(configured)
+
+    assert isinstance(mailer, SmtpMailer)
+    assert mailer.requires_tls is False
