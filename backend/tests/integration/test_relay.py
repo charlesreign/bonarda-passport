@@ -1,3 +1,4 @@
+import asyncio
 from datetime import timedelta
 from typing import Any, ClassVar
 from uuid import UUID, uuid4
@@ -10,7 +11,7 @@ from app.core.outbox.events import DomainEvent
 from app.core.outbox.models import OutboxEvent, ProcessedEvent
 from app.core.outbox.processing import process_event, purge_dispatched_events
 from app.core.outbox.registry import HandlerRegistry
-from app.core.outbox.relay import HANDLER_JOB, STUCK_AFTER_ATTEMPTS, relay_once
+from app.core.outbox.relay import HANDLER_JOB, STUCK_AFTER_ATTEMPTS, relay_once, run_relay
 from app.core.outbox.writer import emit_event
 from app.core.time import utcnow
 
@@ -103,6 +104,61 @@ async def test_relay_keeps_event_pending_and_counts_attempts_when_enqueue_fails(
     assert row.dispatched_at is None
     assert row.attempts == 2
     assert STUCK_AFTER_ATTEMPTS == 10
+
+
+async def test_relay_once_returns_zero_dispatched_when_every_enqueue_fails(
+    sessionmaker: async_sessionmaker[AsyncSession], registry: HandlerRegistry
+) -> None:
+    """With Redis down, a pass must report 0 dispatched (not the claimed batch
+    size) so run_relay can tell the difference and back off instead of
+    spinning — see test_run_relay_survives_listen_connect_failure and
+    next_backoff in tests/unit/test_outbox_relay.py."""
+    for i in range(3):
+        await _emit(sessionmaker, note=f"e{i}")
+
+    dispatched = await relay_once(sessionmaker, registry, FakeEnqueue(fail=True))
+
+    assert dispatched == 0
+    async with sessionmaker() as s:
+        rows = (await s.scalars(select(OutboxEvent))).all()
+    assert len(rows) == 3
+    assert all(row.dispatched_at is None and row.attempts == 1 for row in rows)
+
+
+async def test_run_relay_survives_listen_connect_failure(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    registry: HandlerRegistry,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """asyncpg.connect() failing (Postgres unreachable at worker startup, or
+    the LISTEN connection later dropping) must not end the relay task: it
+    keeps dispatching via the poll_interval fallback instead of NOTIFY."""
+    event_id = await _emit(sessionmaker)
+    enqueue = FakeEnqueue()
+
+    async def always_fail(*_args: Any, **_kwargs: Any) -> None:
+        raise OSError("connection refused")
+
+    monkeypatch.setattr("app.core.outbox.relay._connect", always_fail)
+    stop = asyncio.Event()
+
+    async def _stop_soon() -> None:
+        await asyncio.sleep(0.05)
+        stop.set()
+
+    stopper = asyncio.create_task(_stop_soon())
+    await run_relay(
+        sessionmaker,
+        registry,
+        enqueue,
+        listen_dsn="postgresql://unused/unused",
+        stop=stop,
+        poll_interval=0.01,
+    )
+    await stopper
+
+    assert enqueue.calls  # dispatched via the poll loop, not LISTEN
+    assert enqueue.calls[0][1] == str(event_id)
 
 
 async def test_process_event_runs_handler_exactly_once(

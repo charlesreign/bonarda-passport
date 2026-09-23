@@ -1,6 +1,8 @@
 import asyncio
+from collections.abc import Callable
 from typing import Any, ClassVar
 
+import structlog
 from arq import cron
 from arq.connections import RedisSettings
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -17,6 +19,23 @@ from app.worker.jobs import (
     run_event_handler,
 )
 
+log = structlog.get_logger(__name__)
+
+
+def _log_if_relay_died_unexpectedly(
+    stop: asyncio.Event,
+) -> Callable[[asyncio.Task[None]], None]:
+    def _callback(task: asyncio.Task[None]) -> None:
+        if stop.is_set() or task.cancelled():
+            return
+        exc = task.exception()
+        # Reached even when exc is None: after this fix run_relay only ever
+        # returns while `stop` is set, so any other exit — with or without an
+        # exception — means outbox dispatch has silently stopped forever.
+        log.error("outbox.relay_stopped", exc_info=exc)
+
+    return _callback
+
 
 async def startup(ctx: dict[str, Any]) -> None:
     settings = get_settings()
@@ -26,7 +45,7 @@ async def startup(ctx: dict[str, Any]) -> None:
     ctx["sessionmaker"] = async_sessionmaker(engine, expire_on_commit=False)
     ctx["registry"] = build_registry()
     ctx["relay_stop"] = asyncio.Event()
-    ctx["relay_task"] = asyncio.create_task(
+    relay_task = asyncio.create_task(
         run_relay(
             ctx["sessionmaker"],
             ctx["registry"],
@@ -35,6 +54,8 @@ async def startup(ctx: dict[str, Any]) -> None:
             stop=ctx["relay_stop"],
         )
     )
+    relay_task.add_done_callback(_log_if_relay_died_unexpectedly(ctx["relay_stop"]))
+    ctx["relay_task"] = relay_task
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:

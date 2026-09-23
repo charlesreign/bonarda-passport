@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import time
 from collections.abc import Awaitable, Callable
 
 import asyncpg
@@ -15,9 +16,17 @@ from app.core.time import utcnow
 HANDLER_JOB = "run_event_handler"
 BATCH_SIZE = 100
 STUCK_AFTER_ATTEMPTS = 10
+BACKOFF_INITIAL_SECONDS = 1.0
+BACKOFF_CAP_SECONDS = 30.0
 
 Enqueue = Callable[..., Awaitable[object]]
 log = structlog.get_logger(__name__)
+
+# Module-level alias so tests can patch just this call site (e.g. to simulate
+# Postgres being unreachable) without touching the shared `asyncpg` module,
+# which SQLAlchemy's asyncpg dialect also imports for the sessionmaker's own
+# connections.
+_connect = asyncpg.connect
 
 
 def listen_dsn(database_url: str) -> str:
@@ -25,14 +34,24 @@ def listen_dsn(database_url: str) -> str:
     return database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
 
 
-async def relay_once(
+def next_backoff(current: float) -> float:
+    """Capped exponential backoff: 0 (not backing off) -> 1s, then doubles each
+    consecutive call, capped at BACKOFF_CAP_SECONDS. Callers reset to 0 after a
+    fully successful pass."""
+    if current <= 0:
+        return BACKOFF_INITIAL_SECONDS
+    return min(current * 2, BACKOFF_CAP_SECONDS)
+
+
+async def _relay_once_detailed(
     sessionmaker: async_sessionmaker[AsyncSession],
     registry: HandlerRegistry,
     enqueue: Enqueue,
-) -> int:
+) -> tuple[int, int]:
     """Claims a batch of undispatched events (SKIP LOCKED, so several relays can
     run) and enqueues one Arq job per handler. The job ID makes re-enqueueing
-    after a partial failure harmless. Returns the number of rows claimed."""
+    after a partial failure harmless. Returns (claimed, dispatched)."""
+    dispatched = 0
     async with sessionmaker() as session, session.begin():
         rows = (
             await session.scalars(
@@ -61,7 +80,22 @@ async def relay_once(
                 )
                 continue
             row.dispatched_at = utcnow()
-    return len(rows)
+            dispatched += 1
+    return len(rows), dispatched
+
+
+async def relay_once(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    registry: HandlerRegistry,
+    enqueue: Enqueue,
+) -> int:
+    """Runs one claim-and-dispatch pass. Returns the number of rows
+    successfully dispatched (rows whose dispatched_at was set) — NOT the
+    number claimed, so a pass where every enqueue failed (e.g. Redis is down)
+    returns 0 rather than the batch size. `run_relay` uses that to back off
+    instead of spinning."""
+    _claimed, dispatched = await _relay_once_detailed(sessionmaker, registry, enqueue)
+    return dispatched
 
 
 async def run_relay(
@@ -73,21 +107,63 @@ async def run_relay(
     stop: asyncio.Event,
     poll_interval: float = 2.0,
 ) -> None:
-    """Wakes on NOTIFY outbox (immediate) or every poll_interval (fallback)."""
+    """Wakes on NOTIFY outbox (immediate) or every poll_interval (fallback).
+
+    Resilient to both dependencies being unavailable:
+    - Postgres (the LISTEN connection): connecting is retried with capped
+      backoff instead of raising out of the task at startup (which would kill
+      it silently) or wherever the connection later drops. While
+      disconnected, relay_once still runs on poll_interval — NOTIFY is only a
+      latency optimization, the poll loop is the source of truth.
+    - Redis (the enqueue target, via `enqueue`): a pass where any enqueue
+      failed backs off with the same capped-exponential wait instead of
+      looping immediately, which is what let `attempts` blow past
+      STUCK_AFTER_ATTEMPTS in milliseconds before this fix.
+    """
     wake = asyncio.Event()
-    conn = await asyncpg.connect(listen_dsn)
-    await conn.add_listener(OUTBOX_CHANNEL, lambda *_: wake.set())
+    conn: asyncpg.Connection | None = None
+    listen_backoff = 0.0
+    next_listen_attempt = 0.0
+    dispatch_backoff = 0.0
+
+    async def try_listen() -> asyncpg.Connection | None:
+        try:
+            new_conn = await _connect(listen_dsn)
+            await new_conn.add_listener(OUTBOX_CHANNEL, lambda *_: wake.set())
+        except Exception:
+            log.warning("outbox.relay_listen_unavailable", exc_info=True)
+            return None
+        return new_conn
+
     try:
         while not stop.is_set():
+            now = time.monotonic()
+            if (conn is None or conn.is_closed()) and now >= next_listen_attempt:
+                conn = await try_listen()
+                if conn is None:
+                    listen_backoff = next_backoff(listen_backoff)
+                    next_listen_attempt = now + listen_backoff
+                else:
+                    listen_backoff = 0.0
+
             wake.clear()
             try:
-                claimed = await relay_once(sessionmaker, registry, enqueue)
+                claimed, dispatched = await _relay_once_detailed(sessionmaker, registry, enqueue)
             except Exception:
                 log.exception("outbox.relay_failed")
-                claimed = 0
-            if claimed == BATCH_SIZE:
+                claimed, dispatched = 0, 0
+
+            if dispatched == BATCH_SIZE:
+                dispatch_backoff = 0.0
                 continue
+            if dispatched < claimed:
+                dispatch_backoff = next_backoff(dispatch_backoff)
+                wait = dispatch_backoff
+            else:
+                dispatch_backoff = 0.0
+                wait = poll_interval
             with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(wake.wait(), timeout=poll_interval)
+                await asyncio.wait_for(wake.wait(), timeout=wait)
     finally:
-        await conn.close()
+        if conn is not None and not conn.is_closed():
+            await conn.close()
