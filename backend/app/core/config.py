@@ -1,9 +1,27 @@
 from functools import lru_cache
+from typing import Self
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.enums import UserRole
+
+_NON_PRODUCTION_ENVS = {"dev", "test"}
+_MIN_SECRET_LENGTH = 32
+_PLACEHOLDER = "change-me"
+
+
+def _check_strong_secret(value: SecretStr, *, field: str) -> None:
+    raw = value.get_secret_value()
+    if _PLACEHOLDER in raw.lower():
+        raise ValueError(f"{field} must not contain a placeholder value ('{_PLACEHOLDER}')")
+    if len(raw) < _MIN_SECRET_LENGTH:
+        raise ValueError(f"{field} must be at least {_MIN_SECRET_LENGTH} characters")
+
+
+def _check_no_placeholder(value: SecretStr, *, field: str) -> None:
+    if _PLACEHOLDER in value.get_secret_value().lower():
+        raise ValueError(f"{field} must not contain a placeholder value ('{_PLACEHOLDER}')")
 
 
 class Settings(BaseSettings):
@@ -39,6 +57,20 @@ class Settings(BaseSettings):
     oidc_max_age_seconds: int = 2_592_000
 
     scim_bearer_token: SecretStr
+
+    @model_validator(mode="after")
+    def _require_production_hardening(self) -> Self:
+        """Outside dev/test, refuse to start with a weak or placeholder secret,
+        or with cookies allowed over plain HTTP — cheap to check once here
+        instead of relying on every environment being configured correctly."""
+        if self.env in _NON_PRODUCTION_ENVS:
+            return self
+        _check_strong_secret(self.jwt_signing_key, field="jwt_signing_key")
+        _check_strong_secret(self.scim_bearer_token, field="scim_bearer_token")
+        _check_no_placeholder(self.oidc_client_secret, field="oidc_client_secret")
+        if not self.cookie_secure:
+            raise ValueError("cookie_secure must be true outside dev/test")
+        return self
 
 
 @lru_cache
