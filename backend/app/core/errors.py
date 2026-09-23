@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.context import get_correlation_id
+from app.core.middleware import CORRELATION_HEADER
 
 PROBLEM_JSON = "application/problem+json"
 
@@ -63,6 +64,14 @@ class TooManyRequests(AppError):
     title = "Too many requests"
 
 
+def _resolve_correlation_id(request: Request) -> str | None:
+    """The contextvar is set for the normal request path. An unhandled
+    exception unwinds CorrelationIdMiddleware's `with` block before
+    ServerErrorMiddleware (outside it) calls this, resetting the contextvar —
+    scope["state"], mirrored onto request.state, is the fallback."""
+    return get_correlation_id() or getattr(request.state, "correlation_id", None)
+
+
 def problem_response(
     request: Request,
     *,
@@ -80,7 +89,7 @@ def problem_response(
         "detail": detail,
         "code": code,
         "instance": request.url.path,
-        "correlation_id": get_correlation_id(),
+        "correlation_id": _resolve_correlation_id(request),
     }
     if extra:
         body.update(extra)
@@ -125,13 +134,18 @@ async def _http_error(request: Request, exc: Exception) -> JSONResponse:
 
 
 async def _unhandled_error(request: Request, exc: Exception) -> JSONResponse:
-    log.exception("request.unhandled_error", exc_info=exc)
+    # CorrelationIdMiddleware already logged this (with the correlation-id
+    # contextvar still bound, which it no longer is by the time we run here,
+    # outside that middleware) — logging again here would double the line.
+    correlation_id = _resolve_correlation_id(request)
+    headers = {CORRELATION_HEADER: correlation_id} if correlation_id else None
     return problem_response(
         request,
         status=500,
         code="internal_error",
         title="Internal server error",
         detail="An unexpected error occurred",
+        headers=headers,
     )
 
 

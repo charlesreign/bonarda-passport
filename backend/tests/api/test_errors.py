@@ -90,10 +90,12 @@ async def test_unhandled_error_renders_problem_json_without_leaking_detail(
 ) -> None:
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://api.test") as raw_client:
-        response = await raw_client.get("/_test/boom")
+        response = await raw_client.get("/_test/boom", headers={"X-Correlation-ID": "abc123"})
 
     assert response.status_code == 500
     assert response.headers["content-type"] == "application/problem+json"
     body = response.json()
     assert body["code"] == "internal_error"
     assert "secret internals" not in response.text
+    assert body["correlation_id"] == "abc123"
+    assert response.headers["x-correlation-id"] == "abc123"
