@@ -8,8 +8,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.outbox.writer import emit_event
-from app.modules.passport.enums import ConsentPurpose, OnboardingState, StandingTier, WorkerStatus
-from app.modules.passport.models import Skill, Worker
+from app.modules.passport.enums import (
+    ConsentPurpose,
+    OnboardingState,
+    StandingTier,
+    VerificationStatus,
+    WorkerStatus,
+)
+from app.modules.passport.models import Skill, SkillClaim, Worker
 from app.modules.passport.repository import (
     ConsentRepository,
     SkillClaimRepository,
@@ -111,3 +117,16 @@ async def set_standing_tier(session: AsyncSession, worker_id: UUID, tier: Standi
     worker = await WorkerRepository(session).get(worker_id)
     if worker is not None:
         worker.standing_tier = tier
+
+
+async def verify_skill(session: AsyncSession, worker_id: UUID, skill_id: UUID) -> bool:
+    """Marks a claim bonarda_verified (FR-2.2). True only if this call changed it."""
+    claim = await session.scalar(
+        select(SkillClaim)
+        .where(SkillClaim.worker_id == worker_id, SkillClaim.skill_id == skill_id)
+        .with_for_update()
+    )
+    if claim is None or claim.verification_status is VerificationStatus.BONARDA_VERIFIED:
+        return False
+    claim.verification_status = VerificationStatus.BONARDA_VERIFIED
+    return True

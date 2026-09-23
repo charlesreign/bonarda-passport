@@ -20,6 +20,7 @@ from app.modules.passport.queries import (
     mark_worker_dormant,
     profile_gaps,
     set_standing_tier,
+    verify_skill,
     worker_name,
     worker_region,
 )
@@ -41,6 +42,7 @@ __all__ = [
     "mark_worker_dormant",
     "profile_gaps",
     "set_standing_tier",
+    "verify_skill",
     "worker_name",
     "worker_region",
 ]
