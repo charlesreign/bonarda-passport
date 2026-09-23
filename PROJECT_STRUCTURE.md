@@ -47,17 +47,20 @@ bonarda-passport/
 │   │   │   │   ├── skills.py, profile.py, consents.py, invitations.py
 │   │   │   │   ├── router.py
 │   │   │   │   └── service.py
-│   │   │   ├── engagements/               # + structured feedback schema
+│   │   │   ├── engagements/               # projects, staffing, engagements, contracts, feedback (Plan 2B)
+│   │   │   │   ├── enums.py, models.py, repository.py, schemas.py
+│   │   │   │   ├── projects.py, visibility.py, engagements.py, contracts.py
+│   │   │   │   ├── payroll.py, feedback.py, stuck.py, handlers.py
+│   │   │   │   ├── router.py
+│   │   │   │   └── service.py
 │   │   │   ├── standing/                  # + rules.py (pure tier evaluation)
 │   │   │   ├── roster/                    # + scoring.py, first_shot.py (pure functions)
 │   │   │   ├── governance/                # + policy_schemas.py (per-kind rule validation)
 │   │   │   └── integrations/
-│   │   │       ├── esign/
-│   │   │       │   ├── base.py            # EsignAdapter protocol
-│   │   │       │   └── fake.py            # dev/demo: auto-signs after a delay
-│   │   │       ├── payroll/               # base.py, fake.py
+│   │   │       ├── esign.py               # EsignAdapter protocol + FakeEsignAdapter (never signs by itself)
+│   │   │       ├── payroll.py             # PayrollAdapter protocol + FakePayrollAdapter
 │   │   │       ├── smtp.py                # SmtpMailer; service.py exposes build_mailer
-│   │   │       └── webhooks.py            # HMAC verification
+│   │   │       └── webhooks.py            # HMAC sign/verify for the e-sign webhook
 │   │   └── worker/
 │   │       ├── settings.py                # Arq WorkerSettings, cron schedule, relay startup
 │   │       └── jobs.py                    # dispatches to module handlers; cron jobs
