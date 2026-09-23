@@ -1,3 +1,4 @@
+import re
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
@@ -6,14 +7,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.audit.writer import write_audit
 from app.core.context import Actor
 from app.core.db.errors import violated_constraint
-from app.core.errors import Conflict, NotFound
+from app.core.errors import BadRequest, Conflict, NotFound
 from app.core.outbox.writer import emit_event
 from app.core.time import utcnow
 from app.modules.engagements.enums import EngagementPath, EngagementStatus, ProjectStatus
 from app.modules.engagements.models import Engagement, Project
 from app.modules.engagements.repository import EngagementRepository, ProjectRepository
-from app.modules.engagements.schemas import EngagementCreate, EngagementCreated
+from app.modules.engagements.schemas import (
+    ContractTerms,
+    EngagementCreate,
+    EngagementCreated,
+    ReactivationCreate,
+    ReactivationPrefill,
+)
 from app.modules.passport.service import engagement_readiness, worker_region
+
+_IDEMPOTENCY_KEY = re.compile(r"[A-Za-z0-9_-]{8,64}")
 
 _CONSTRAINT_CODES = {
     "uq_engagements_open_worker_project": (
@@ -125,3 +134,63 @@ class EngagementService:
             ),
         )
         return engagement
+
+    async def prefill(self, actor: Actor, worker_id: UUID, project_id: UUID) -> ReactivationPrefill:
+        await self.staffed_project(actor, project_id)
+        latest = await self.engagements.latest_for_worker(worker_id)
+        if latest is None:
+            raise NotFound("No earlier engagement to reactivate", code="no_prior_engagement")
+        days = None
+        if latest.billable_start_at is not None:
+            days = round(
+                (latest.billable_start_at - latest.confirmed_at).total_seconds() / 86400, 2
+            )
+        return ReactivationPrefill(
+            prefilled_from_engagement_id=latest.id,
+            rate=latest.rate,
+            currency=latest.currency,
+            work_mode=latest.work_mode,
+            location=latest.location,
+            contract_terms=ContractTerms.model_validate(latest.contract_terms),
+            last_days_to_start=days,
+        )
+
+    async def reactivate(
+        self,
+        actor: Actor,
+        worker_id: UUID,
+        data: ReactivationCreate,
+        idempotency_key: str | None,
+    ) -> tuple[Engagement, bool]:
+        """Returns (engagement, replayed). A replay of the same PM's key for the
+        same worker returns the original engagement (spec §8.4)."""
+        if idempotency_key is None or not _IDEMPOTENCY_KEY.fullmatch(idempotency_key):
+            raise BadRequest(
+                "Send an Idempotency-Key header of 8-64 letters, digits, '-' or '_'",
+                code="idempotency_key_required",
+            )
+        existing = await self.engagements.get_by_idempotency_key(idempotency_key)
+        if existing is not None:
+            if existing.worker_id == worker_id and existing.created_by_id == actor.user_id:
+                return existing, True
+            detail, code = _CONSTRAINT_CODES["uq_engagements_idempotency_key"]
+            raise Conflict(detail, code=code)
+        if data.prefilled_from_engagement_id is not None:
+            source = await self.engagements.get(data.prefilled_from_engagement_id)
+            if source is None or source.worker_id != worker_id:
+                raise BadRequest(
+                    "The prefill source must be one of this worker's engagements",
+                    code="invalid_prefill_source",
+                )
+        terms = EngagementCreate.model_validate(
+            data.model_dump(exclude={"prefilled_from_engagement_id"})
+        )
+        engagement = await self.create(
+            actor,
+            worker_id,
+            terms,
+            path=EngagementPath.REACTIVATION,
+            idempotency_key=idempotency_key,
+            prefilled_from=data.prefilled_from_engagement_id,
+        )
+        return engagement, False

@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header, Query, Response
 
 from app.core.context import Actor
 from app.core.db.session import SessionDep
@@ -15,6 +15,8 @@ from app.modules.engagements.schemas import (
     EngagementRead,
     ProjectCreate,
     ProjectRead,
+    ReactivationCreate,
+    ReactivationPrefill,
     StaffAssignment,
     engagement_read,
 )
@@ -30,6 +32,7 @@ router = APIRouter(prefix="/api/v1", tags=["engagements"])
 
 ProjectManager = Annotated[Actor, Depends(require_permission(Permission.PROJECT_MANAGE))]
 EngagementCreator = Annotated[Actor, Depends(require_permission(Permission.ENGAGEMENT_CREATE))]
+Reactivator = Annotated[Actor, Depends(require_permission(Permission.ENGAGEMENT_REACTIVATE))]
 
 
 @router.post("/projects", status_code=201)
@@ -87,4 +90,37 @@ async def create_first_time_engagement(
     engagement = await EngagementService(session).create(
         actor, worker_id, body, path=EngagementPath.FIRST_TIME
     )
+    return engagement_read(engagement, None)
+
+
+@router.get("/workers/{worker_id}/reactivation-prefill")
+async def reactivation_prefill(
+    worker_id: UUID,
+    project_id: Annotated[UUID, Query()],
+    actor: Reactivator,
+    session: SessionDep,
+    level: Annotated[Visibility, Depends(require_visibility(Visibility.SUMMARY))],
+) -> ReactivationPrefill:
+    return await EngagementService(session).prefill(actor, worker_id, project_id)
+
+
+@router.post(
+    "/workers/{worker_id}/reactivations",
+    status_code=201,
+    responses={200: {"model": EngagementRead, "description": "Replayed Idempotency-Key"}},
+)
+async def reactivate_worker(
+    worker_id: UUID,
+    body: ReactivationCreate,
+    actor: Reactivator,
+    session: SessionDep,
+    response: Response,
+    level: Annotated[Visibility, Depends(require_visibility(Visibility.SUMMARY))],
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -> EngagementRead:
+    engagement, replayed = await EngagementService(session).reactivate(
+        actor, worker_id, body, idempotency_key
+    )
+    if replayed:
+        response.status_code = 200
     return engagement_read(engagement, None)

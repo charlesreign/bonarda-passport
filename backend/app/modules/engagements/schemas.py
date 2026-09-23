@@ -110,6 +110,23 @@ class EngagementCreate(BaseModel):
         return self
 
 
+class ReactivationPrefill(BaseModel):
+    """Contract terms from the most recent engagement (FR-4.4). No history,
+    no feedback: prefill needs only summary visibility."""
+
+    prefilled_from_engagement_id: UUID
+    rate: Decimal
+    currency: str
+    work_mode: WorkMode
+    location: str | None
+    contract_terms: ContractTerms
+    last_days_to_start: float | None
+
+
+class ReactivationCreate(EngagementCreate):
+    prefilled_from_engagement_id: UUID | None = None
+
+
 class EngagementCreated(DomainEvent):
     event_type: ClassVar[str] = "engagements.engagement_created"
     worker_id: UUID

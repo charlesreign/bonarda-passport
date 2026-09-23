@@ -136,3 +136,19 @@ class EngagementRepository:
                 Engagement.status.in_(OPEN_STATUSES),
             )
         )
+
+    async def latest_for_worker(self, worker_id: UUID) -> Engagement | None:
+        return await self.session.scalar(
+            select(Engagement)
+            .where(
+                Engagement.worker_id == worker_id,
+                Engagement.status != EngagementStatus.CANCELLED,
+            )
+            .order_by(Engagement.start_date.desc(), Engagement.created_at.desc())
+            .limit(1)
+        )
+
+    async def get_by_idempotency_key(self, key: str) -> Engagement | None:
+        return await self.session.scalar(
+            select(Engagement).where(Engagement.idempotency_key == key)
+        )
