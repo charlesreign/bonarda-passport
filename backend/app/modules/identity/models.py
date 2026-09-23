@@ -30,6 +30,12 @@ class UserAccount(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Boolean, default=False, server_default=text("false"), nullable=False
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Language for everything the platform sends this person (NFR-8.1/8.2).
+    locale: Mapped[str] = mapped_column(
+        String(5), default="en", server_default="en", nullable=False
+    )
+
+    __table_args__ = (CheckConstraint("locale IN ('en','fr')", name="locale_supported"),)
 
 
 class RefreshSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):

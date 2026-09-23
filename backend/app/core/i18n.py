@@ -1,6 +1,11 @@
 """Server-side message catalog (NFR-8.1). The SPA owns UI strings; the backend
 only needs text it sends itself, such as email."""
 
+from typing import Literal
+
+Locale = Literal["en", "fr"]
+SUPPORTED_LOCALES: tuple[str, ...] = ("en", "fr")
+
 MESSAGES: dict[str, dict[str, str]] = {
     "en": {
         "magic_link.subject": "Your Bonarda sign-in link",

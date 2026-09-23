@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 
 import pytest
 from fakeredis import aioredis as fake_aioredis
@@ -21,7 +21,8 @@ from app.core.config import Settings
 from app.core.db.base import Base
 from app.core.enums import UserRole
 from app.main import create_app
-from tests.support import alembic_config
+from app.wiring import HandlerDeps, build_registry
+from tests.support import RecordingMailer, alembic_config, drain_outbox
 
 
 @pytest.fixture(scope="session")
@@ -101,3 +102,26 @@ def app(
 async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api.test") as c:
         yield c
+
+
+@pytest.fixture
+def mailer(app: FastAPI) -> RecordingMailer:
+    recording = RecordingMailer()
+    app.state.mailer = recording
+    return recording
+
+
+@pytest.fixture
+def drain(
+    app: FastAPI,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    mailer: RecordingMailer,
+) -> Callable[[], Awaitable[None]]:
+    registry = build_registry(
+        HandlerDeps(settings=app.state.settings, redis=app.state.redis, mailer=mailer)
+    )
+
+    async def _drain() -> None:
+        await drain_outbox(sessionmaker, registry)
+
+    return _drain
