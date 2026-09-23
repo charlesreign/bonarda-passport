@@ -2,8 +2,8 @@ import secrets
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Cookie, Depends, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Cookie, Depends, Header, Request, Response
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.core.audit.writer import write_audit
 from app.core.config import Settings
@@ -25,8 +25,10 @@ from app.modules.identity.schemas import (
     MagicLinkRequest,
     MagicLinkVerify,
     MeResponse,
+    ScimPatch,
     TokenResponse,
 )
+from app.modules.identity.scim import ScimService
 from app.modules.identity.sessions import IssuedSession, SessionService
 
 router = APIRouter(prefix="/api/v1", tags=["identity"])
@@ -208,3 +210,27 @@ async def list_access_grants(
 @router.delete("/access-grants/{grant_id}", status_code=204)
 async def revoke_access_grant(grant_id: UUID, actor: GrantManager, session: SessionDep) -> None:
     await GrantService(session).revoke(actor, grant_id)
+
+
+async def require_scim_token(
+    settings: SettingsDep, authorization: Annotated[str | None, Header()] = None
+) -> None:
+    expected = f"Bearer {settings.scim_bearer_token.get_secret_value()}"
+    if authorization is None or not secrets.compare_digest(authorization, expected):
+        raise Unauthorized("Invalid SCIM credentials", code="scim_unauthorized")
+
+
+@router.patch("/scim/v2/Users/{subject}", dependencies=[Depends(require_scim_token)])
+async def scim_patch_user(
+    subject: str, body: ScimPatch, session: SessionDep, redis: RedisDep, settings: SettingsDep
+) -> JSONResponse:
+    user = await ScimService(session, redis, settings).patch_user(subject, body)
+    return JSONResponse(
+        {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+            "id": subject,
+            "userName": user.email,
+            "active": user.status.value == "active",
+        },
+        media_type="application/scim+json",
+    )

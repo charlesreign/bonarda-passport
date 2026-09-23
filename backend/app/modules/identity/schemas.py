@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import ClassVar, Literal
+from typing import Any, ClassVar, Literal
 from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, EmailStr, Field
@@ -55,3 +55,21 @@ class GrantCreated(DomainEvent):
     granted_to_id: UUID
     scoped_worker_id: UUID
     expires_at: datetime
+
+
+class ScimOperation(BaseModel):
+    op: str
+    path: str | None = None
+    value: Any = None
+
+
+class ScimPatch(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    schemas: list[str]
+    operations: list[ScimOperation] = Field(alias="Operations")
+
+
+class AccessRevoked(DomainEvent):
+    event_type: ClassVar[str] = "identity.access_revoked"
+    reason: Literal["deactivated", "role_changed"]
