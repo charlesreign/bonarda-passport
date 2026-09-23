@@ -31,7 +31,7 @@ Each item below must become a named task with a test in the plan listed.
 | any | FastAPI is pinned to 0.115.0 because `get_session` relies on yield-dependency teardown running before the response is sent; re-verify before upgrading. |
 | 4 | Consent and onboarding audit rows carry only `after`, no `before`. |
 | 6 | Outbox handler retry budget (~30 s over 5 tries) is too short for SMTP outages; lengthen for mail handlers and add a dead-letter consumer with alerting. |
-| 4 | Audit `full_name` changes (`worker.renamed`, before/after) before contracts print it; don't emit `WorkerUpdated` for no-op PATCHes. |
+| 4 | Audit that `full_name` changed (`worker.renamed`, recording only that the name changed, never the name: audit_log is append-only and survives erasure, spec §6.3) before contracts print it; don't emit `WorkerUpdated` for no-op PATCHes. |
 | 5 | Type `locale` response fields as the `Locale` enum (`MeResponse`, `AccountContact`, `WorkerSelf`) for the generated client. |
 | any | Visibility guard compares Python field names only: aliases (`Field(alias="worker_id")`), untyped `dict` bodies and unresolved forward references are not detected. |
 | 6 | Fake e-sign never signs by itself; for the demo add auto-sign after a delay (or a dev-only sign endpoint) so the loop runs without a provider. |
@@ -40,7 +40,12 @@ Each item below must become a named task with a test in the plan listed.
 | 4 | Closing a project must end its open `project_staff` rows. Staff rows on a closed project otherwise keep granting worker visibility. |
 | any | Finance has `engagement:read_billing` but no billing read endpoint yet. |
 | any | `sync_worker_status` counts active engagements and then writes the worker row without a lock. A concurrent cancel and activate can leave the worker dormant even though it has an active engagement. |
-| any | `billable_start_at` is stamped when the job runs. It should be max(signed_at, start_date at 00:00 UTC). |
+| 5 | Keyset pagination for `GET /projects` and `GET /workers/{id}/engagements` (spec §7.2); no endpoint paginates yet. |
+| 4 | An anonymized worker stays DETAIL-visible to PMs through past engagements; decide what a PM may still see at anonymization. |
+| pre-live (real adapters) | Adapter call timeouts; the engagement row lock is held across the external e-sign/payroll call. |
+| 4 | `send_contract` retries into dead-letter when the worker account is gone; cancel the engagement instead. |
+| any | Reactivation replay ignores body differences (same key, different terms returns the original); consider 422 on mismatch. |
+| 3 | `has_history` counts unsigned in-flight engagements, which skews FR-5.3 first-time vs repeat metrics; reactivation also re-checks profile gaps. |
 
 ## Implementation deviations from the spec (recorded as they happen)
 
@@ -54,7 +59,8 @@ Each item below must become a named task with a test in the plan listed.
 | 2A | Invitations are not yet tied to a project; the inviting PM gets 404 on `GET /workers/{id}` until Plan 2B adds PM visibility sources — resolved in 2B: the inviting PM sees the summary when they staff a project in the worker's region | Projects arrive in Plan 2B |
 | 2A | Re-inviting a worker still at `invited` resends the invitation (200) instead of 409 | Recovery path for lost invitation emails |
 | 2B | Engagement routes address the worker in the path: `POST /workers/{id}/engagements`, `GET /workers/{id}/reactivation-prefill`, `POST /workers/{id}/reactivations`; managed actions are `/engagements/{id}/complete`, `/feedback`, `/contract/retry` (not `:complete`/`:retry`) | Visibility guard coverage; plain REST paths |
-| 2B | Reactivation prefill needs summary visibility, not detail, and returns contract terms only | A new PM reactivating someone another PM worked with (FR-4.3's core case) only has summary visibility |
+| 2B | Reactivation prefill needs summary visibility, not detail, and returns contract terms only (scope; no access notes) | A new PM reactivating someone another PM worked with (FR-4.3's core case) only has summary visibility |
 | 2B | A worker with any non-cancelled engagement can only be engaged through reactivation | Keeps first-time vs repeat metrics (FR-5.3) accurate |
 | 2B | Reactivation replays a concurrent duplicate `Idempotency-Key` from the same PM with 200 | The spec says "idempotent on key"; the reason is double-clicks |
 | 2B | `ESIGN_WEBHOOK_SECRET` is a new required setting | HMAC-signs and verifies the e-sign webhook (spec §8.1) |
+| 2B | Any staffed PM can edit a project's staff list (spec: people_ops or the owning PM) | Projects record only `created_by_id` (the creator, possibly people_ops), not an owning PM; every staffed PM is treated as an owner. Revisit if staffing needs tighter control |
