@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, String, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -49,10 +49,18 @@ class RefreshSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Distinguishes an ordinary rotation from a deliberate revocation (logout,
+    # SCIM/admin action) or a detected reuse, so `rotate` doesn't mistake a
+    # logged-out or deactivated session for token theft (FR-9.4).
+    revoked_reason: Mapped[str | None] = mapped_column(String(20))
 
     __table_args__ = (
         Index("ix_refresh_sessions_family_id", "family_id"),
         Index("ix_refresh_sessions_user_id", "user_id"),
+        CheckConstraint(
+            "revoked_reason IS NULL OR revoked_reason IN ('rotated','logout','admin','reuse')",
+            name="revoked_reason_valid",
+        ),
     )
 
 

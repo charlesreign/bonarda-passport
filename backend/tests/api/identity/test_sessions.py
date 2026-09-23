@@ -1,6 +1,7 @@
 import asyncio
 from datetime import timedelta
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -195,6 +196,47 @@ async def test_logout_revokes_family_and_clears_cookie(
     assert (await client.post("/api/v1/auth/refresh")).status_code == 401
     audit = (await session.scalars(select(AuditLog.action))).all()
     assert "auth.logout" in audit
+
+
+async def test_logged_out_token_presented_again_is_session_revoked_not_theft(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    """Logout sets revoked_at on every session in the family, same as
+    rotation does. Presenting that same token afterwards (e.g. a second tab
+    that never saw the logout) must be read as an ended session, not as
+    stolen-token reuse."""
+    user = await make_user(session)
+    issued = await _start(session, settings, user)
+    _use_cookie(client, issued.refresh_token)
+    logout_response = await client.post("/api/v1/auth/logout")
+    assert logout_response.status_code == 204
+
+    _use_cookie(client, issued.refresh_token)
+    response = await client.post("/api/v1/auth/refresh")
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "session_revoked"
+    audit = (await session.scalars(select(AuditLog.action))).all()
+    assert "auth.refresh_reuse_detected" not in audit
+
+
+async def test_admin_revoked_token_presented_again_is_session_revoked_not_theft(
+    session: AsyncSession, settings: Settings
+) -> None:
+    """Same as logout: an admin/SCIM-driven revoke_all_for_user must not be
+    misread as token theft on the next refresh attempt."""
+    user = await make_user(session)
+    issued = await _start(session, settings, user)
+    service = SessionService(session, settings)
+    await service.refresh.revoke_all_for_user(user.id, utcnow(), reason="admin")
+    await session.commit()
+
+    with pytest.raises(Unauthorized) as excinfo:
+        await service.rotate(issued.refresh_token)
+
+    assert excinfo.value.code == "session_revoked"
+    audit = (await session.scalars(select(AuditLog.action))).all()
+    assert "auth.refresh_reuse_detected" not in audit
 
 
 async def test_me_returns_the_account(

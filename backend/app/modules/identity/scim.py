@@ -115,7 +115,7 @@ class ScimService:
         reason: Literal["deactivated", "role_changed"],
     ) -> None:
         now = utcnow()
-        await self.refresh.revoke_all_for_user(user.id, now)
+        await self.refresh.revoke_all_for_user(user.id, now, reason="admin")
         try:
             await mark_revoked(self.redis, self.settings, user.id, now)
         except (RedisError, OSError):

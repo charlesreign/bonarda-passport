@@ -83,11 +83,17 @@ class SessionService:
         if current is None:
             raise Unauthorized("Unknown refresh token", code="invalid_refresh")
         if current.revoked_at is not None:
+            if current.revoked_reason != "rotated":
+                # Logout, SCIM/admin revocation, or a family already flagged
+                # for reuse — not an ordinary rotation. Presenting this token
+                # again isn't theft, it's stale; treat it as ended, with no
+                # audit row and no (further) family revocation.
+                raise Unauthorized("Session has ended", code="session_revoked")
             if now - current.revoked_at <= REUSE_GRACE:
                 raise Unauthorized(
                     "Session was refreshed elsewhere; retry", code="refresh_superseded"
                 )
-            await self.refresh.revoke_family(current.family_id, now)
+            await self.refresh.revoke_family(current.family_id, now, reason="reuse")
             await write_audit(
                 self.session,
                 actor=None,
@@ -106,6 +112,7 @@ class SessionService:
         if user is None or user.status is not AccountStatus.ACTIVE:
             raise Unauthorized("Account is not active", code="account_inactive")
         current.revoked_at = now
+        current.revoked_reason = "rotated"
         return self._issue(
             user, family_id=current.family_id, started=current.family_started_at, amr=current.amr
         )
@@ -113,7 +120,7 @@ class SessionService:
     async def end(self, refresh_token: str) -> None:
         current = await self.refresh.get_by_hash(hash_token(refresh_token))
         if current is not None:
-            await self.refresh.revoke_family(current.family_id, utcnow())
+            await self.refresh.revoke_family(current.family_id, utcnow(), reason="logout")
             await write_audit(
                 self.session,
                 actor=None,

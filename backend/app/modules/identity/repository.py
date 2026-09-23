@@ -54,18 +54,18 @@ class RefreshSessionRepository:
         self.session.add(row)
         return row
 
-    async def revoke_family(self, family_id: UUID, at: datetime) -> None:
+    async def revoke_family(self, family_id: UUID, at: datetime, *, reason: str) -> None:
         await self.session.execute(
             update(RefreshSession)
             .where(RefreshSession.family_id == family_id, RefreshSession.revoked_at.is_(None))
-            .values(revoked_at=at)
+            .values(revoked_at=at, revoked_reason=reason)
         )
 
-    async def revoke_all_for_user(self, user_id: UUID, at: datetime) -> None:
+    async def revoke_all_for_user(self, user_id: UUID, at: datetime, *, reason: str) -> None:
         await self.session.execute(
             update(RefreshSession)
             .where(RefreshSession.user_id == user_id, RefreshSession.revoked_at.is_(None))
-            .values(revoked_at=at)
+            .values(revoked_at=at, revoked_reason=reason)
         )
 
 
