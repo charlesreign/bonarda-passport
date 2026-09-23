@@ -256,4 +256,5 @@ async def test_me_returns_the_account(
         "role": "people_ops",
         "worker_id": None,
         "can_view_governance": False,
+        "locale": "en",
     }

@@ -1,6 +1,5 @@
 from datetime import timedelta
 from typing import Any
-from uuid import uuid4
 
 import pytest
 import redis.exceptions as redis_exceptions
@@ -17,7 +16,7 @@ from app.core.outbox.models import OutboxEvent
 from app.core.time import utcnow
 from app.modules.identity.models import AccessGrant, RefreshSession, UserAccount
 from app.modules.identity.sessions import SessionService
-from tests.support import bearer, make_user
+from tests.support import bearer, make_user, make_worker
 
 SCIM = {"Authorization": "Bearer scim-test-token", "Content-Type": "application/scim+json"}
 PATCH_SCHEMA = ["urn:ietf:params:scim:api:messages:2.0:PatchOp"]
@@ -77,9 +76,10 @@ async def test_deactivation_closes_open_access_grants(
     client: AsyncClient, session: AsyncSession, settings: Settings
 ) -> None:
     user = await _pm_with_session(session, settings)
+    worker, _ = await make_worker(session)
     grant = AccessGrant(
         granted_to_id=user.id,
-        scoped_worker_id=uuid4(),
+        scoped_worker_id=worker.id,
         reason="staffing review",
         expires_at=utcnow() + timedelta(days=30),
     )
@@ -238,3 +238,243 @@ async def test_scim_requires_the_scim_token(client: AsyncClient, auth: str | Non
 
     assert response.status_code == 401
     assert response.json()["code"] == "scim_unauthorized"
+
+
+@pytest.mark.parametrize("path", ["active", "roles"])
+async def test_removing_a_managed_attribute_is_rejected(
+    client: AsyncClient, session: AsyncSession, path: str
+) -> None:
+    await make_user(session, oidc_subject="kc-ama")
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama", json=_patch({"op": "remove", "path": path}), headers=SCIM
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "scim_unsupported_operation"
+
+
+async def test_removing_an_unmanaged_attribute_is_ignored(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    user = await make_user(session, oidc_subject="kc-ama")
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama",
+        json=_patch({"op": "remove", "path": "name.givenName"}),
+        headers=SCIM,
+    )
+
+    assert response.status_code == 200
+    await session.refresh(user)
+    assert user.status is AccountStatus.ACTIVE
+
+
+async def test_unknown_operation_is_rejected(client: AsyncClient, session: AsyncSession) -> None:
+    await make_user(session, oidc_subject="kc-ama")
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama",
+        json=_patch({"op": "copy", "path": "active", "value": False}),
+        headers=SCIM,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "scim_unsupported_operation"
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        {"op": "remove", "path": 'roles[value eq "pm"]'},
+        {"op": "remove", "value": {"roles": [{"value": "finance"}]}},
+        {"op": "replace", "path": 'roles[value eq "pm"]', "value": [{"value": "finance"}]},
+    ],
+)
+async def test_scim_paths_are_normalized_case_and_filter_insensitively(
+    client: AsyncClient, session: AsyncSession, operation: dict[str, Any]
+) -> None:
+    """SCIM attribute names are case-insensitive (RFC 7643 §2.1); IdPs may also
+    address a managed attribute with a value filter or via a path-less dict.
+    All three shapes must be recognized as touching a managed attribute, not
+    silently accepted as a no-op."""
+    await make_user(session, oidc_subject="kc-ama")
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama", json=_patch(operation), headers=SCIM
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "scim_unsupported_operation"
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        {"op": "replace", "path": "Active", "value": False},
+        {"op": "replace", "value": {"Active": False}},
+    ],
+)
+async def test_scim_case_and_path_less_deactivation_takes_effect(
+    client: AsyncClient, session: AsyncSession, operation: dict[str, Any]
+) -> None:
+    user = await make_user(session, oidc_subject="kc-ama")
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama", json=_patch(operation), headers=SCIM
+    )
+
+    assert response.status_code == 200
+    session.expire_all()
+    await session.refresh(user)
+    assert user.status is AccountStatus.REVOKED
+
+
+async def test_staff_account_cannot_be_given_the_worker_role(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    await make_user(session, oidc_subject="kc-ama")
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama",
+        json=_patch({"op": "replace", "path": "roles", "value": [{"value": "worker"}]}),
+        headers=SCIM,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "scim_invalid_value"
+
+
+URN = "urn:ietf:params:scim:schemas:core:2.0:User:"
+
+
+async def test_fully_qualified_active_path_deactivates(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    user = await _pm_with_session(session, settings)
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama",
+        json=_patch({"op": "replace", "path": f"{URN}active", "value": False}),
+        headers=SCIM,
+    )
+
+    assert response.status_code == 200
+    await session.refresh(user)
+    assert user.status is AccountStatus.REVOKED
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        {"op": "remove", "path": f"{URN}roles"},
+        {"op": "replace", "path": "urn:example:custom:2.0:User:active", "value": False},
+    ],
+)
+async def test_urn_paths_to_managed_attributes_are_never_silently_ignored(
+    client: AsyncClient, session: AsyncSession, operation: dict[str, object]
+) -> None:
+    await make_user(session, oidc_subject="kc-ama")
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama", json=_patch(operation), headers=SCIM
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "scim_unsupported_operation"
+
+
+async def test_enterprise_extension_attributes_are_still_ignored(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    await make_user(session, oidc_subject="kc-ama")
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama",
+        json=_patch(
+            {
+                "op": "replace",
+                "path": "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User:manager",
+                "value": {"value": "someone"},
+            }
+        ),
+        headers=SCIM,
+    )
+
+    assert response.status_code == 200
+
+
+async def test_path_less_value_dict_with_fully_qualified_key_deactivates(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    user = await _pm_with_session(session, settings)
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama",
+        json=_patch({"op": "replace", "value": {f"{URN}active": False}}),
+        headers=SCIM,
+    )
+
+    assert response.status_code == 200
+    await session.refresh(user)
+    assert user.status is AccountStatus.REVOKED
+
+
+async def test_path_less_value_dict_with_foreign_urn_key_is_rejected(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    await make_user(session, oidc_subject="kc-ama")
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama",
+        json=_patch({"op": "replace", "value": {"urn:example:custom:2.0:User:active": False}}),
+        headers=SCIM,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "scim_unsupported_operation"
+
+
+async def test_path_less_nested_core_schema_dict_is_never_silently_ignored(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    user = await _pm_with_session(session, settings)
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama",
+        json=_patch(
+            {
+                "op": "replace",
+                "value": {"urn:ietf:params:scim:schemas:core:2.0:User": {"active": False}},
+            }
+        ),
+        headers=SCIM,
+    )
+
+    if response.status_code == 200:
+        await session.refresh(user)
+        assert user.status is AccountStatus.REVOKED
+    else:
+        assert response.status_code == 400
+        assert response.json()["code"] == "scim_unsupported_operation"
+
+
+async def test_foreign_urn_path_with_colon_inside_filter_is_rejected(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    await make_user(session, oidc_subject="kc-ama")
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama",
+        json=_patch(
+            {
+                "op": "replace",
+                "path": 'urn:example:custom:2.0:User:roles[value eq "a:b"]',
+                "value": [{"value": "finance"}],
+            }
+        ),
+        headers=SCIM,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "scim_unsupported_operation"
