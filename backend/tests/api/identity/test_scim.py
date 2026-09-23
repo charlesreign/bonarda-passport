@@ -279,7 +279,55 @@ async def test_unknown_operation_is_rejected(client: AsyncClient, session: Async
         headers=SCIM,
     )
 
+    assert response.status_code == 400
     assert response.json()["code"] == "scim_unsupported_operation"
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        {"op": "remove", "path": 'roles[value eq "pm"]'},
+        {"op": "remove", "value": {"roles": [{"value": "finance"}]}},
+        {"op": "replace", "path": 'roles[value eq "pm"]', "value": [{"value": "finance"}]},
+    ],
+)
+async def test_scim_paths_are_normalized_case_and_filter_insensitively(
+    client: AsyncClient, session: AsyncSession, operation: dict[str, Any]
+) -> None:
+    """SCIM attribute names are case-insensitive (RFC 7643 §2.1); IdPs may also
+    address a managed attribute with a value filter or via a path-less dict.
+    All three shapes must be recognized as touching a managed attribute, not
+    silently accepted as a no-op."""
+    await make_user(session, oidc_subject="kc-ama")
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama", json=_patch(operation), headers=SCIM
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "scim_unsupported_operation"
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        {"op": "replace", "path": "Active", "value": False},
+        {"op": "replace", "value": {"Active": False}},
+    ],
+)
+async def test_scim_case_and_path_less_deactivation_takes_effect(
+    client: AsyncClient, session: AsyncSession, operation: dict[str, Any]
+) -> None:
+    user = await make_user(session, oidc_subject="kc-ama")
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama", json=_patch(operation), headers=SCIM
+    )
+
+    assert response.status_code == 200
+    session.expire_all()
+    await session.refresh(user)
+    assert user.status is AccountStatus.REVOKED
 
 
 async def test_staff_account_cannot_be_given_the_worker_role(

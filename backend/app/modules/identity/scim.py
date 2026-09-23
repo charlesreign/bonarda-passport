@@ -61,6 +61,19 @@ def _parse_role(value: Any) -> UserRole:
     return role
 
 
+def _normalize(path: str | None) -> str | None:
+    """SCIM attribute names are case-insensitive (RFC 7643 §2.1) and may carry
+    a value filter (`roles[value eq "pm"]`) or a sub-attribute (`name.givenName`)
+    that this dispatch ignores the qualifier of."""
+    if path is None:
+        return None
+    return path.split("[")[0].split(".")[0].lower()
+
+
+def _dict_keys_lower(value: Any) -> set[str]:
+    return {k.lower() for k in value} if isinstance(value, dict) else set()
+
+
 def _interpret(patch: ScimPatch) -> _Changes:
     """Applies `active` and `roles`. Other attributes (names, emails, manager)
     are accepted and ignored: this system does not store them."""
@@ -69,19 +82,29 @@ def _interpret(patch: ScimPatch) -> _Changes:
         op = operation.op.lower()
         if op not in _SUPPORTED_OPS:
             raise _unsupported(f"Unsupported SCIM operation '{operation.op}'")
+        normalized = _normalize(operation.path)
         if op == "remove":
-            if operation.path in _MANAGED_PATHS:
-                raise _unsupported(f"'{operation.path}' cannot be removed; replace it instead")
+            if normalized in _MANAGED_PATHS or (
+                operation.path is None and _dict_keys_lower(operation.value) & set(_MANAGED_PATHS)
+            ):
+                raise _unsupported(
+                    f"'{operation.path or operation.value}' cannot be removed; replace it instead"
+                )
             continue
-        if operation.path == "active":
-            changes.active = _parse_bool(operation.value)
-        elif operation.path == "roles":
-            changes.role = _parse_role(operation.value)
+        if normalized in _MANAGED_PATHS:
+            if operation.path is not None and ("[" in operation.path or "." in operation.path):
+                raise _unsupported(f"'{operation.path}' is not supported; use a plain path")
+            if normalized == "active":
+                changes.active = _parse_bool(operation.value)
+            else:
+                changes.role = _parse_role(operation.value)
         elif operation.path is None and isinstance(operation.value, dict):
-            if "active" in operation.value:
-                changes.active = _parse_bool(operation.value["active"])
-            if "roles" in operation.value:
-                changes.role = _parse_role(operation.value["roles"])
+            for key, value in operation.value.items():
+                key = key.lower()
+                if key == "active":
+                    changes.active = _parse_bool(value)
+                elif key == "roles":
+                    changes.role = _parse_role(value)
     return changes
 
 
