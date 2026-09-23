@@ -16,6 +16,8 @@ from app.core.outbox.registry import HandlerRegistry
 from app.core.time import utcnow
 from app.modules.identity.models import UserAccount
 from app.modules.identity.tokens import issue_access_token
+from app.modules.passport.enums import OnboardingState, WorkerStatus, WorkerType
+from app.modules.passport.models import Worker
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
@@ -35,19 +37,53 @@ async def make_user(
     status: AccountStatus = AccountStatus.ACTIVE,
     oidc_subject: str | None = None,
     worker_id: UUID | None = None,
+    locale: str = "en",
 ) -> UserAccount:
     is_worker = role is UserRole.WORKER
+    if is_worker and worker_id is None:
+        worker = Worker(
+            full_name="Test Worker", worker_type=WorkerType.FREELANCER, data_region="GH"
+        )
+        session.add(worker)
+        await session.flush()
+        worker_id = worker.id
     user = UserAccount(
         email=(email or f"{uuid4().hex[:10]}@example.com").strip().lower(),
         role=role,
         auth_provider=AuthProvider.MAGIC_LINK if is_worker else AuthProvider.CORPORATE_SSO,
         status=status,
         oidc_subject=oidc_subject if not is_worker else None,
-        worker_id=(worker_id or uuid4()) if is_worker else None,
+        worker_id=worker_id if is_worker else None,
+        locale=locale,
     )
     session.add(user)
     await session.commit()
     return user
+
+
+async def make_worker(
+    session: AsyncSession,
+    *,
+    email: str | None = None,
+    full_name: str = "Kofi Mensah",
+    data_region: str = "GH",
+    status: WorkerStatus = WorkerStatus.DORMANT,
+    onboarding_state: OnboardingState = OnboardingState.PROFILE_COMPLETE,
+    locale: str = "en",
+) -> tuple[Worker, UserAccount]:
+    worker = Worker(
+        full_name=full_name,
+        worker_type=WorkerType.FREELANCER,
+        data_region=data_region,
+        status=status,
+        onboarding_state=onboarding_state,
+    )
+    session.add(worker)
+    await session.flush()
+    user = await make_user(
+        session, role=UserRole.WORKER, email=email, worker_id=worker.id, locale=locale
+    )
+    return worker, user
 
 
 def bearer(settings: Settings, user: UserAccount, *, now: datetime | None = None) -> dict[str, str]:

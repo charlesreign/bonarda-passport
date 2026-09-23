@@ -8,6 +8,7 @@ from arq.connections import RedisSettings
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app import models_registry as _models_registry  # noqa: F401 (map tables before first flush)
 from app.core.config import get_settings
 from app.core.db.session import create_engine
 from app.core.logging import configure_logging

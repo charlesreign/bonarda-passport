@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from app import models_registry as _models_registry  # noqa: F401 (map tables before first flush)
 from app.core import health
 from app.core.config import Settings, get_settings
 from app.core.db.session import create_engine

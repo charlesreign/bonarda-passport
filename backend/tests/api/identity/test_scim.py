@@ -1,6 +1,5 @@
 from datetime import timedelta
 from typing import Any
-from uuid import uuid4
 
 import pytest
 import redis.exceptions as redis_exceptions
@@ -17,7 +16,7 @@ from app.core.outbox.models import OutboxEvent
 from app.core.time import utcnow
 from app.modules.identity.models import AccessGrant, RefreshSession, UserAccount
 from app.modules.identity.sessions import SessionService
-from tests.support import bearer, make_user
+from tests.support import bearer, make_user, make_worker
 
 SCIM = {"Authorization": "Bearer scim-test-token", "Content-Type": "application/scim+json"}
 PATCH_SCHEMA = ["urn:ietf:params:scim:api:messages:2.0:PatchOp"]
@@ -77,9 +76,10 @@ async def test_deactivation_closes_open_access_grants(
     client: AsyncClient, session: AsyncSession, settings: Settings
 ) -> None:
     user = await _pm_with_session(session, settings)
+    worker, _ = await make_worker(session)
     grant = AccessGrant(
         granted_to_id=user.id,
-        scoped_worker_id=uuid4(),
+        scoped_worker_id=worker.id,
         reason="staffing review",
         expires_at=utcnow() + timedelta(days=30),
     )

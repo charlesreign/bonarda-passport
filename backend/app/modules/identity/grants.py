@@ -1,6 +1,7 @@
 from datetime import timedelta
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit.writer import write_audit
@@ -35,16 +36,22 @@ class GrantService:
             or grantee.status is not AccountStatus.ACTIVE
         ):
             raise BadRequest("Grants can only be given to active PMs", code="grant_invalid_grantee")
-        grant = self.grants.add(
-            AccessGrant(
-                granted_to_id=data.granted_to_id,
-                scoped_worker_id=data.scoped_worker_id,
-                granted_by_id=actor.user_id,
-                reason=data.reason,
-                expires_at=data.expires_at,
-            )
-        )
-        await self.session.flush()
+        # identity does not import passport: the FK to workers is the check.
+        # A savepoint keeps the outer transaction usable if it fails.
+        try:
+            async with self.session.begin_nested():
+                grant = self.grants.add(
+                    AccessGrant(
+                        granted_to_id=data.granted_to_id,
+                        scoped_worker_id=data.scoped_worker_id,
+                        granted_by_id=actor.user_id,
+                        reason=data.reason,
+                        expires_at=data.expires_at,
+                    )
+                )
+                await self.session.flush()
+        except IntegrityError as exc:
+            raise BadRequest("No worker with this id", code="grant_worker_not_found") from exc
         await write_audit(
             self.session,
             actor=actor,

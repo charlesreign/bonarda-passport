@@ -24,8 +24,9 @@ class UserAccount(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
     )
     oidc_subject: Mapped[str | None] = mapped_column(String(255), unique=True)
-    # FK to workers.id is added by Plan 2's migration, once the table exists.
-    worker_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), unique=True)
+    worker_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("workers.id", ondelete="RESTRICT"), unique=True
+    )
     can_view_governance: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=text("false"), nullable=False
     )
@@ -79,8 +80,9 @@ class AccessGrant(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     granted_to_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("user_accounts.id", ondelete="CASCADE"), nullable=False
     )
-    # FK to workers.id is added by Plan 2's migration.
-    scoped_worker_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    scoped_worker_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("workers.id", ondelete="CASCADE"), nullable=False
+    )
     granted_by_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("user_accounts.id", ondelete="SET NULL")
     )
