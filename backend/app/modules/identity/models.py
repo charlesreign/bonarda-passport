@@ -24,12 +24,19 @@ class UserAccount(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
     )
     oidc_subject: Mapped[str | None] = mapped_column(String(255), unique=True)
-    # FK to workers.id is added by Plan 2's migration, once the table exists.
-    worker_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), unique=True)
+    worker_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("workers.id", ondelete="RESTRICT"), unique=True
+    )
     can_view_governance: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=text("false"), nullable=False
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Language for everything the platform sends this person (NFR-8.1/8.2).
+    locale: Mapped[str] = mapped_column(
+        String(5), default="en", server_default="en", nullable=False
+    )
+
+    __table_args__ = (CheckConstraint("locale IN ('en','fr')", name="locale_supported"),)
 
 
 class RefreshSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -73,8 +80,9 @@ class AccessGrant(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     granted_to_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("user_accounts.id", ondelete="CASCADE"), nullable=False
     )
-    # FK to workers.id is added by Plan 2's migration.
-    scoped_worker_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    scoped_worker_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("workers.id", ondelete="CASCADE"), nullable=False
+    )
     granted_by_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("user_accounts.id", ondelete="SET NULL")
     )

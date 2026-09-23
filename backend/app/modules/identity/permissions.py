@@ -34,6 +34,7 @@ class Permission(StrEnum):
     STANDING_OVERRIDE = "standing:override"
     GOVERNANCE_READ = "governance:read"
     AUDIT_READ = "audit:read"
+    SKILL_MANAGE = "skill:manage"
 
 
 P = Permission
@@ -64,6 +65,7 @@ ROLE_PERMISSIONS: Mapping[UserRole, frozenset[Permission]] = MappingProxyType(
                 P.STANDING_OVERRIDE,
                 P.GOVERNANCE_READ,
                 P.AUDIT_READ,
+                P.SKILL_MANAGE,
             }
         ),
         UserRole.FINANCE: frozenset({P.ENGAGEMENT_READ_BILLING}),

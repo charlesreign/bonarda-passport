@@ -30,3 +30,4 @@ Do not edit by hand; from `backend/` run:
 | `standing:override` |  | ✓ |  |  |  |
 | `governance:read` |  | ✓ |  |  | ✓ |
 | `audit:read` |  | ✓ |  |  | ✓ |
+| `skill:manage` |  | ✓ |  |  |  |

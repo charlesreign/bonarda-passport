@@ -20,6 +20,7 @@ def _prod_kwargs(**overrides: Any) -> dict[str, Any]:
         "oidc_client_secret": SecretStr("a-real-oidc-client-secret"),
         "oidc_redirect_url": "https://app.bonarda.works/api/v1/auth/oidc/callback",
         "scim_bearer_token": SecretStr("b" * 32),
+        "esign_webhook_secret": SecretStr("c" * 32),
     }
     kwargs.update(overrides)
     return kwargs
@@ -74,3 +75,8 @@ def test_create_app_without_a_mailer_in_prod_refuses_to_start() -> None:
 
     with pytest.raises(RuntimeError, match="mailer"):
         create_app(settings)
+
+
+def test_prod_esign_webhook_secret_must_be_strong() -> None:
+    with pytest.raises(ValidationError, match="esign_webhook_secret"):
+        Settings(**_prod_kwargs(esign_webhook_secret=SecretStr("short")))
