@@ -40,6 +40,9 @@ Each item below must become a named task with a test in the plan listed.
 | 4 | Audit `full_name` changes (`worker.renamed`, before/after) before contracts print it; don't emit `WorkerUpdated` for no-op PATCHes. |
 | 5 | Type `locale` response fields as the `Locale` enum (`MeResponse`, `AccountContact`, `WorkerSelf`) for the generated client. |
 | any | Visibility guard compares Python field names only: aliases (`Field(alias="worker_id")`), untyped `dict` bodies and unresolved forward references are not detected. |
+| 2B | Invitation resend (200) is not declared in OpenAPI (`responses={200: …}`); a re-invite body that differs from the existing invited worker is silently ignored; resends have no per-address rate limit; a resend to a revoked account still returns 200. Revisit when invitations are tied to projects. |
+| 2B | SCIM paths in fully qualified URN form (`urn:ietf:params:scim:schemas:core:2.0:User:active`) are normalized to an unmanaged name and ignored; strip the core-schema prefix or reject `urn:` paths ending in a managed attribute. |
+| any | Coverage under-reports async service code: add `[tool.coverage.run] concurrency = ["greenlet", "thread"]` to `backend/pyproject.toml` and confirm with a before/after run. |
 
 ## Implementation deviations from the spec (recorded as they happen)
 
