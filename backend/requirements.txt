@@ -2,6 +2,7 @@
 # Python 3.12+
 
 # --- Web framework ---
+# pinned: get_session relies on yield-dependency teardown running before the response is sent
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 gunicorn==22.0.0

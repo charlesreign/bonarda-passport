@@ -58,9 +58,15 @@ class MagicLinkService:
         )
 
     async def _limit(self, key: str, limit: int) -> None:
-        count = await self.redis.incr(key)
-        if count == 1:
-            await self.redis.expire(key, 3600)
+        # SET NX (only if absent) then INCR, both in one MULTI/EXEC pipeline:
+        # the key always carries a TTL from the moment it's created. The
+        # previous "INCR, then EXPIRE if this was the first hit" sequence had
+        # a window where a crash between the two left the key without a TTL,
+        # making the limit permanent instead of hourly.
+        async with self.redis.pipeline(transaction=True) as pipe:
+            pipe.set(key, 0, ex=3600, nx=True)
+            pipe.incr(key)
+            _, count = await pipe.execute()
         if count > limit:
             raise TooManyRequests(
                 "Too many sign-in link requests; try again later", code="magic_link_rate_limited"
