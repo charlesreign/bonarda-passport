@@ -1,4 +1,6 @@
+from datetime import timedelta
 from typing import Any
+from uuid import uuid4
 
 import pytest
 import redis.exceptions as redis_exceptions
@@ -12,7 +14,8 @@ from app.core.audit.models import AuditLog
 from app.core.config import Settings
 from app.core.enums import AccountStatus, UserRole
 from app.core.outbox.models import OutboxEvent
-from app.modules.identity.models import RefreshSession, UserAccount
+from app.core.time import utcnow
+from app.modules.identity.models import AccessGrant, RefreshSession, UserAccount
 from app.modules.identity.sessions import SessionService
 from tests.support import bearer, make_user
 
@@ -68,6 +71,36 @@ async def test_deactivation_revokes_everything_immediately(
     assert (event.event_type, event.payload["reason"]) == ("identity.access_revoked", "deactivated")
     me = await client.get("/api/v1/me", headers=live_token)
     assert me.json()["code"] == "session_revoked"
+
+
+async def test_deactivation_closes_open_access_grants(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    user = await _pm_with_session(session, settings)
+    grant = AccessGrant(
+        granted_to_id=user.id,
+        scoped_worker_id=uuid4(),
+        reason="staffing review",
+        expires_at=utcnow() + timedelta(days=30),
+    )
+    session.add(grant)
+    await session.commit()
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama",
+        json=_patch({"op": "replace", "path": "active", "value": False}),
+        headers=SCIM,
+    )
+
+    assert response.status_code == 200
+    session.expire_all()
+    await session.refresh(grant)
+    assert grant.revoked_at is not None
+    audit = (
+        await session.scalars(select(AuditLog).where(AuditLog.action == "access_grant.revoked"))
+    ).one()
+    assert audit.target_id == grant.id
+    assert audit.reason == "deactivated"
 
 
 class _FailingRedis:

@@ -102,6 +102,18 @@ class AccessGrantRepository:
             stmt = stmt.where(AccessGrant.granted_to_id == granted_to_id)
         return list((await self.session.scalars(stmt.order_by(AccessGrant.expires_at))).all())
 
+    async def list_open_for_grantee(self, granted_to_id: UUID) -> list[AccessGrant]:
+        return list(
+            (
+                await self.session.scalars(
+                    select(AccessGrant).where(
+                        AccessGrant.granted_to_id == granted_to_id,
+                        AccessGrant.revoked_at.is_(None),
+                    )
+                )
+            ).all()
+        )
+
     async def list_lapsed(self, at: datetime) -> list[AccessGrant]:
         return list(
             (
