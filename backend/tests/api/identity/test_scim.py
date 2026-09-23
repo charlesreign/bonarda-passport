@@ -1,7 +1,9 @@
 from typing import Any
 
 import pytest
+import redis.exceptions as redis_exceptions
 from fakeredis import aioredis as fake_aioredis
+from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,6 +68,41 @@ async def test_deactivation_revokes_everything_immediately(
     assert (event.event_type, event.payload["reason"]) == ("identity.access_revoked", "deactivated")
     me = await client.get("/api/v1/me", headers=live_token)
     assert me.json()["code"] == "session_revoked"
+
+
+class _FailingRedis:
+    """Stands in for app.state.redis: every command raises, like a Redis
+    outage or network partition would."""
+
+    async def set(self, *args: Any, **kwargs: Any) -> None:
+        raise redis_exceptions.ConnectionError("redis down")
+
+
+async def test_deactivation_survives_redis_being_down(
+    client: AsyncClient,
+    app: FastAPI,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    user = await _pm_with_session(session, settings)
+    app.state.redis = _FailingRedis()
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama",
+        json=_patch({"op": "replace", "path": "active", "value": False}),
+        headers=SCIM,
+    )
+
+    assert response.status_code == 200
+    session.expire_all()
+    await session.refresh(user)
+    assert user.status is AccountStatus.REVOKED
+    sessions = (await session.scalars(select(RefreshSession))).all()
+    assert sessions and all(s.revoked_at is not None for s in sessions)
+    audit = (
+        await session.scalars(select(AuditLog).where(AuditLog.action == "access.revoked"))
+    ).one()
+    assert audit.after == {"status": "revoked", "role": "pm"}
 
 
 @pytest.mark.parametrize(

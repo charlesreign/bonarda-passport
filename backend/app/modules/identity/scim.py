@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 from typing import Any, Literal
 
+import structlog
 from redis.asyncio import Redis
+from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit.writer import write_audit
@@ -14,6 +16,8 @@ from app.modules.identity.models import UserAccount
 from app.modules.identity.repository import RefreshSessionRepository, UserRepository
 from app.modules.identity.revocation import mark_revoked
 from app.modules.identity.schemas import AccessRevoked, ScimPatch
+
+log = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -107,7 +111,15 @@ class ScimService:
     ) -> None:
         now = utcnow()
         await self.refresh.revoke_all_for_user(user.id, now)
-        await mark_revoked(self.redis, self.settings, user.id, now)
+        try:
+            await mark_revoked(self.redis, self.settings, user.id, now)
+        except (RedisError, OSError):
+            # The DB revocation (refresh sessions + status) is durable and
+            # commits regardless; the marker only shortens the window during
+            # which an already-issued access token keeps working, and the
+            # 10-min access-token TTL already bounds that exposure (spec
+            # Section 8.1).
+            log.error("auth.revocation_marker_unavailable", user_id=str(user.id))
         await write_audit(
             self.session,
             actor=None,
