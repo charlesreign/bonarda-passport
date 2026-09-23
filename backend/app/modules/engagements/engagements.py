@@ -14,7 +14,9 @@ from app.modules.engagements.enums import EngagementPath, EngagementStatus, Proj
 from app.modules.engagements.models import Engagement, Project
 from app.modules.engagements.repository import EngagementRepository, ProjectRepository
 from app.modules.engagements.schemas import (
+    CompletionRequest,
     ContractTerms,
+    EngagementCompleted,
     EngagementCreate,
     EngagementCreated,
     ReactivationCreate,
@@ -140,6 +142,38 @@ class EngagementService:
                 worker_id=worker_id,
                 project_id=project.id,
                 path=path,
+            ),
+        )
+        return engagement
+
+    async def complete(
+        self, actor: Actor, engagement_id: UUID, data: CompletionRequest
+    ) -> Engagement:
+        engagement = await self.managed(actor, engagement_id)
+        if engagement.status is not EngagementStatus.ACTIVE:
+            raise Conflict(
+                "Only an active engagement can be completed", code="engagement_not_active"
+            )
+        end_date = data.end_date or engagement.end_date or utcnow().date()
+        if end_date < engagement.start_date:
+            raise BadRequest("end_date is before the start date", code="invalid_end_date")
+        engagement.end_date = end_date
+        engagement.status = EngagementStatus.COMPLETED
+        engagement.completed_at = utcnow()
+        await write_audit(
+            self.session,
+            actor=actor,
+            action="engagement.completed",
+            target_type="engagement",
+            target_id=engagement.id,
+            after={"end_date": end_date.isoformat()},
+        )
+        await emit_event(
+            self.session,
+            EngagementCompleted(
+                aggregate_id=engagement.id,
+                worker_id=engagement.worker_id,
+                project_id=engagement.project_id,
             ),
         )
         return engagement

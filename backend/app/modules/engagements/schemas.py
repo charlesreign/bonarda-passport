@@ -159,6 +159,48 @@ class EngagementCancelled(DomainEvent):
     project_id: UUID
 
 
+class CompletionRequest(BaseModel):
+    end_date: date | None = None
+
+
+class StructuredAnswers(BaseModel):
+    """FR-2.3 — behaviour-specific questions; all required, nothing else."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    delivered_on_agreed_dates: bool
+    handled_scope_changes_without_escalation: bool
+    would_reengage: bool
+
+
+class FeedbackCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    structured_answers: StructuredAnswers
+    free_text: str | None = Field(default=None, max_length=2000)
+    skill_ids_demonstrated: list[UUID] = Field(default_factory=list, max_length=20)
+
+    @field_validator("skill_ids_demonstrated")
+    @classmethod
+    def _dedupe(cls, value: list[UUID]) -> list[UUID]:
+        return list(dict.fromkeys(value))
+
+
+class EngagementCompleted(DomainEvent):
+    event_type: ClassVar[str] = "engagements.engagement_completed"
+    worker_id: UUID
+    project_id: UUID
+
+
+class FeedbackSubmitted(DomainEvent):
+    """aggregate_id is the engagement; Plan 3's standing handlers consume this."""
+
+    event_type: ClassVar[str] = "engagements.feedback_submitted"
+    worker_id: UUID
+    reviewer_id: UUID | None
+    skill_ids_demonstrated: list[UUID]
+
+
 def engagement_read(engagement: Engagement, feedback: Feedback | None) -> EngagementRead:
     return EngagementRead(
         id=engagement.id,

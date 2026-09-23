@@ -87,3 +87,10 @@ async def mark_worker_dormant(session: AsyncSession, worker_id: UUID, *, since: 
     worker.status = WorkerStatus.DORMANT
     worker.dormant_since = since
     await emit_event(session, WorkerUpdated(aggregate_id=worker_id, fields=["status"]))
+
+
+async def claimed_skill_ids(session: AsyncSession, worker_id: UUID) -> set[UUID]:
+    return {
+        claim.skill_id
+        for claim, _ in await SkillClaimRepository(session).list_for_worker(worker_id)
+    }

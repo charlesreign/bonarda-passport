@@ -11,6 +11,7 @@ from app.modules.engagements.schemas import (
     ContractDispatchRequested,
     EngagementActivated,
     EngagementCancelled,
+    EngagementCompleted,
     EngagementCreated,
 )
 from app.modules.identity.schemas import AccessRevoked
@@ -38,3 +39,4 @@ def register(registry: HandlerRegistry, *, esign: EsignAdapter, payroll: Payroll
     registry.register(EngagementActivated, "engagements.signal_payroll", pay)
     registry.register(EngagementActivated, "engagements.sync_worker_status_on_activation", sync)
     registry.register(EngagementCancelled, "engagements.sync_worker_status_on_cancellation", sync)
+    registry.register(EngagementCompleted, "engagements.sync_worker_status_on_completion", sync)

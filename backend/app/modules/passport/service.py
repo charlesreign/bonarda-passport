@@ -11,6 +11,7 @@ from app.modules.passport.enums import (
     WorkerType,
 )
 from app.modules.passport.queries import (
+    claimed_skill_ids,
     engagement_readiness,
     existing_skill_ids,
     mark_worker_active,
@@ -28,6 +29,7 @@ __all__ = [
     "VerificationStatus",
     "WorkerStatus",
     "WorkerType",
+    "claimed_skill_ids",
     "engagement_readiness",
     "existing_skill_ids",
     "mark_worker_active",

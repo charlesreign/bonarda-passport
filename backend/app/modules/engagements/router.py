@@ -12,12 +12,15 @@ from app.core.time import utcnow
 from app.modules.engagements.contracts import ContractService
 from app.modules.engagements.engagements import EngagementService
 from app.modules.engagements.enums import EngagementPath
+from app.modules.engagements.feedback import FeedbackService
 from app.modules.engagements.projects import ProjectService
 from app.modules.engagements.repository import EngagementRepository
 from app.modules.engagements.schemas import (
+    CompletionRequest,
     EngagementCreate,
     EngagementRead,
     EsignWebhook,
+    FeedbackCreate,
     ProjectCreate,
     ProjectRead,
     ReactivationCreate,
@@ -39,6 +42,7 @@ router = APIRouter(prefix="/api/v1", tags=["engagements"])
 ProjectManager = Annotated[Actor, Depends(require_permission(Permission.PROJECT_MANAGE))]
 EngagementCreator = Annotated[Actor, Depends(require_permission(Permission.ENGAGEMENT_CREATE))]
 Reactivator = Annotated[Actor, Depends(require_permission(Permission.ENGAGEMENT_REACTIVATE))]
+FeedbackReviewer = Annotated[Actor, Depends(require_permission(Permission.FEEDBACK_SUBMIT))]
 
 
 @router.post("/projects", status_code=201)
@@ -162,3 +166,19 @@ async def retry_contract(
 ) -> EngagementRead:
     engagement = await ContractService(session).request_retry(actor, engagement_id)
     return engagement_read(engagement, None)
+
+
+@router.post("/engagements/{engagement_id}/complete")
+async def complete_engagement(
+    engagement_id: UUID, body: CompletionRequest, actor: EngagementCreator, session: SessionDep
+) -> EngagementRead:
+    engagement = await EngagementService(session).complete(actor, engagement_id, body)
+    return engagement_read(engagement, None)
+
+
+@router.post("/engagements/{engagement_id}/feedback", status_code=201)
+async def submit_feedback(
+    engagement_id: UUID, body: FeedbackCreate, actor: FeedbackReviewer, session: SessionDep
+) -> EngagementRead:
+    engagement, feedback = await FeedbackService(session).submit(actor, engagement_id, body)
+    return engagement_read(engagement, feedback)
