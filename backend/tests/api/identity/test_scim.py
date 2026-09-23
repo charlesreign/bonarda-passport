@@ -402,3 +402,79 @@ async def test_enterprise_extension_attributes_are_still_ignored(
     )
 
     assert response.status_code == 200
+
+
+async def test_path_less_value_dict_with_fully_qualified_key_deactivates(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    user = await _pm_with_session(session, settings)
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama",
+        json=_patch({"op": "replace", "value": {f"{URN}active": False}}),
+        headers=SCIM,
+    )
+
+    assert response.status_code == 200
+    await session.refresh(user)
+    assert user.status is AccountStatus.REVOKED
+
+
+async def test_path_less_value_dict_with_foreign_urn_key_is_rejected(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    await make_user(session, oidc_subject="kc-ama")
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama",
+        json=_patch({"op": "replace", "value": {"urn:example:custom:2.0:User:active": False}}),
+        headers=SCIM,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "scim_unsupported_operation"
+
+
+async def test_path_less_nested_core_schema_dict_is_never_silently_ignored(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    user = await _pm_with_session(session, settings)
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama",
+        json=_patch(
+            {
+                "op": "replace",
+                "value": {"urn:ietf:params:scim:schemas:core:2.0:User": {"active": False}},
+            }
+        ),
+        headers=SCIM,
+    )
+
+    if response.status_code == 200:
+        await session.refresh(user)
+        assert user.status is AccountStatus.REVOKED
+    else:
+        assert response.status_code == 400
+        assert response.json()["code"] == "scim_unsupported_operation"
+
+
+async def test_foreign_urn_path_with_colon_inside_filter_is_rejected(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    await make_user(session, oidc_subject="kc-ama")
+
+    response = await client.patch(
+        "/api/v1/scim/v2/Users/kc-ama",
+        json=_patch(
+            {
+                "op": "replace",
+                "path": 'urn:example:custom:2.0:User:roles[value eq "a:b"]',
+                "value": [{"value": "finance"}],
+            }
+        ),
+        headers=SCIM,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "scim_unsupported_operation"

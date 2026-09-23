@@ -62,20 +62,49 @@ def _parse_role(value: Any) -> UserRole:
 
 
 _CORE_USER_URN = "urn:ietf:params:scim:schemas:core:2.0:user:"
+_CORE_USER_SCHEMA = _CORE_USER_URN.rstrip(":")
 
 
 def _strip_urn(path: str) -> str:
     """RFC 7644 §3.10 allows fully qualified paths. Strip the core User schema;
     for any other URN keep only the attribute after the last ':' so a managed
-    attribute in a foreign schema is rejected rather than silently ignored."""
+    attribute in a foreign schema is rejected rather than silently ignored.
+    The filter (if any) is cut off first, so a colon inside a filter value
+    (`roles[value eq "a:b"]`) is never mistaken for the schema/attribute
+    separator."""
     lowered = path.lower()
     if lowered.startswith(_CORE_USER_URN):
         return path[len(_CORE_USER_URN) :]
     if lowered.startswith("urn:"):
-        attribute = path.rsplit(":", 1)[-1]
-        if attribute.split("[")[0].split(".")[0].lower() in _MANAGED_PATHS:
+        attribute = path.split("[", 1)[0].rsplit(":", 1)[-1]
+        if attribute.split(".")[0].lower() in _MANAGED_PATHS:
             raise _unsupported(f"'{path}' is not a supported attribute path")
     return path
+
+
+def _normalized_key(key: str) -> str:
+    """A path-less value dict may key an attribute by its fully qualified
+    name (RFC 7644 §3.10 example 8); normalize it exactly like a path."""
+    return _strip_urn(key).lower()
+
+
+def _flatten_value_dict(value: Any) -> dict[str, Any]:
+    """Flattens a path-less operation's value dict. A key may be a plain or
+    fully qualified attribute name, normalized via `_normalized_key`, or the
+    bare core User schema URN with a nested dict of attributes — RFC 7644
+    §3.10's other fully-qualified form. Either way a managed attribute is
+    never silently dropped because of its key's shape."""
+    if not isinstance(value, dict):
+        return {}
+    flattened: dict[str, Any] = {}
+    for key, val in value.items():
+        if isinstance(key, str) and key.lower() == _CORE_USER_SCHEMA:
+            if not isinstance(val, dict):
+                raise _unsupported(f"'{key}' must be an object of attributes")
+            flattened.update(_flatten_value_dict(val))
+        else:
+            flattened[_normalized_key(key)] = val
+    return flattened
 
 
 def _normalize(path: str | None) -> str | None:
@@ -89,7 +118,7 @@ def _normalize(path: str | None) -> str | None:
 
 
 def _dict_keys_lower(value: Any) -> set[str]:
-    return {k.lower() for k in value} if isinstance(value, dict) else set()
+    return set(_flatten_value_dict(value))
 
 
 def _interpret(patch: ScimPatch) -> _Changes:
@@ -118,8 +147,7 @@ def _interpret(patch: ScimPatch) -> _Changes:
             else:
                 changes.role = _parse_role(operation.value)
         elif operation.path is None and isinstance(operation.value, dict):
-            for key, value in operation.value.items():
-                key = key.lower()
+            for key, value in _flatten_value_dict(operation.value).items():
                 if key == "active":
                     changes.active = _parse_bool(value)
                 elif key == "roles":
