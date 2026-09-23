@@ -14,6 +14,7 @@ from app.core.logging import configure_logging
 from app.core.mail import Mailer
 from app.core.middleware import CorrelationIdMiddleware
 from app.modules.engagements.router import router as engagements_router
+from app.modules.governance.router import router as governance_router
 from app.modules.identity.oidc import AuthlibOidcProvider
 from app.modules.identity.router import router as identity_router
 from app.modules.identity.service import VisibilityPolicy
@@ -59,4 +60,5 @@ def create_app(
     app.include_router(identity_router)
     app.include_router(passport_router)
     app.include_router(engagements_router)
+    app.include_router(governance_router)
     return app

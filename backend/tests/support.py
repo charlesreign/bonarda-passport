@@ -1,13 +1,15 @@
+import importlib.util
 import json
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
 
 from alembic.config import Config
 from app.core.config import Settings
@@ -18,6 +20,7 @@ from app.core.outbox.registry import HandlerRegistry
 from app.core.time import utcnow
 from app.modules.engagements.enums import EngagementPath, EngagementStatus, WorkMode
 from app.modules.engagements.models import Engagement, Project, ProjectStaff
+from app.modules.governance.models import PolicyConfig
 from app.modules.identity.models import UserAccount
 from app.modules.identity.tokens import issue_access_token
 from app.modules.integrations.service import sign_payload
@@ -232,6 +235,26 @@ async def drain_outbox(
                     .values(dispatched_at=utcnow())
                 )
     raise AssertionError("outbox did not drain")
+
+
+def _seed_policy_rows() -> list[dict[str, Any]]:
+    """The seed policies exactly as migration 0008 inserts them."""
+    path = BACKEND_DIR / "alembic" / "versions" / "0008_policies.py"
+    spec = importlib.util.spec_from_file_location("bonarda_migration_0008", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    seeds: list[dict[str, Any]] = module.SEED_POLICIES
+    return seeds
+
+
+async def seed_policies(conn: AsyncConnection) -> None:
+    """Re-inserts the active seed policies after a test's TRUNCATE."""
+    now = utcnow()
+    await conn.execute(
+        PolicyConfig.__table__.insert(),
+        [{**seed, "status": "active", "activated_at": now} for seed in _seed_policy_rows()],
+    )
 
 
 def esign_webhook(settings: Settings, payload: dict[str, object]) -> tuple[bytes, dict[str, str]]:
