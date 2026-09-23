@@ -81,6 +81,15 @@ class ProfileService:
         worker = await self._worker(who.worker_id)
         changes = data.model_dump(exclude_unset=True)
         status = changes.get("availability_status", worker.availability_status)
+        if (
+            "availability_status" in changes
+            and status is not AvailabilityStatus.AVAILABLE_FROM
+            and changes.get("available_from") is not None
+        ):
+            raise UnprocessableEntity(
+                "available_from needs availability_status=available_from",
+                code="availability_status_mismatch",
+            )
         if "availability_status" in changes and status is not AvailabilityStatus.AVAILABLE_FROM:
             changes["available_from"] = None
         available_from = changes.get("available_from", worker.available_from)

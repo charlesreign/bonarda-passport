@@ -158,6 +158,10 @@ async def test_invalid_profile_updates_are_rejected(
     [
         ({"availability_status": "available_from"}, "availability_date_required"),
         ({"available_from": "2026-11-01"}, "availability_status_mismatch"),
+        (
+            {"availability_status": "available", "available_from": "2026-11-01"},
+            "availability_status_mismatch",
+        ),
     ],
 )
 async def test_inconsistent_availability_is_rejected_with_a_code(
