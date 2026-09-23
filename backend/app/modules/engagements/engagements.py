@@ -48,6 +48,15 @@ class EngagementService:
             raise NotFound("Project not found", code="project_not_found")
         return project
 
+    async def managed(self, actor: Actor, engagement_id: UUID) -> Engagement:
+        """An engagement the actor may act on: a PM staffed on its project."""
+        engagement = await self.engagements.get_for_update(engagement_id)
+        if engagement is None or not await self.projects.is_staffed(
+            engagement.project_id, actor.user_id
+        ):
+            raise NotFound("Engagement not found", code="engagement_not_found")
+        return engagement
+
     async def create(
         self,
         actor: Actor,

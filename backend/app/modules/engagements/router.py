@@ -1,11 +1,15 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Response
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from pydantic import ValidationError
 
 from app.core.context import Actor
 from app.core.db.session import SessionDep
 from app.core.deps import SettingsDep
+from app.core.errors import BadRequest, Unauthorized
+from app.core.time import utcnow
+from app.modules.engagements.contracts import ContractService
 from app.modules.engagements.engagements import EngagementService
 from app.modules.engagements.enums import EngagementPath
 from app.modules.engagements.projects import ProjectService
@@ -13,6 +17,7 @@ from app.modules.engagements.repository import EngagementRepository
 from app.modules.engagements.schemas import (
     EngagementCreate,
     EngagementRead,
+    EsignWebhook,
     ProjectCreate,
     ProjectRead,
     ReactivationCreate,
@@ -27,6 +32,7 @@ from app.modules.identity.service import (
     require_permission,
     require_visibility,
 )
+from app.modules.integrations.service import verify_signature
 
 router = APIRouter(prefix="/api/v1", tags=["engagements"])
 
@@ -123,4 +129,36 @@ async def reactivate_worker(
     )
     if replayed:
         response.status_code = 200
+    return engagement_read(engagement, None)
+
+
+@router.post("/webhooks/esign", status_code=204)
+async def esign_webhook(
+    request: Request,
+    session: SessionDep,
+    settings: SettingsDep,
+    x_bonarda_timestamp: Annotated[str | None, Header()] = None,
+    x_bonarda_signature: Annotated[str | None, Header()] = None,
+) -> None:
+    body = await request.body()
+    if not verify_signature(
+        settings.esign_webhook_secret.get_secret_value(),
+        timestamp_header=x_bonarda_timestamp,
+        signature_header=x_bonarda_signature,
+        body=body,
+        now=utcnow(),
+    ):
+        raise Unauthorized("Invalid webhook signature", code="webhook_signature_invalid")
+    try:
+        event = EsignWebhook.model_validate_json(body)
+    except ValidationError as exc:
+        raise BadRequest("Malformed webhook payload", code="invalid_webhook_payload") from exc
+    await ContractService(session).handle_webhook(event)
+
+
+@router.post("/engagements/{engagement_id}/contract/retry", status_code=202)
+async def retry_contract(
+    engagement_id: UUID, actor: EngagementCreator, session: SessionDep
+) -> EngagementRead:
+    engagement = await ContractService(session).request_retry(actor, engagement_id)
     return engagement_read(engagement, None)

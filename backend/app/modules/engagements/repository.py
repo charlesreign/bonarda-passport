@@ -1,7 +1,8 @@
 from collections.abc import Sequence
+from datetime import date
 from uuid import UUID
 
-from sqlalchemy import exists, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.engagements.enums import OPEN_STATUSES, EngagementStatus
@@ -152,3 +153,27 @@ class EngagementRepository:
         return await self.session.scalar(
             select(Engagement).where(Engagement.idempotency_key == key)
         )
+
+    async def get_by_envelope_for_update(self, envelope_id: str) -> Engagement | None:
+        return await self.session.scalar(
+            select(Engagement).where(Engagement.esign_envelope_id == envelope_id).with_for_update()
+        )
+
+    async def due_signed(self, today: date) -> list[Engagement]:
+        stmt = (
+            select(Engagement)
+            .where(Engagement.status == EngagementStatus.SIGNED, Engagement.start_date <= today)
+            .with_for_update(skip_locked=True)
+        )
+        return list((await self.session.scalars(stmt)).all())
+
+    async def active_count(self, worker_id: UUID) -> int:
+        count = await self.session.scalar(
+            select(func.count())
+            .select_from(Engagement)
+            .where(
+                Engagement.worker_id == worker_id,
+                Engagement.status == EngagementStatus.ACTIVE,
+            )
+        )
+        return int(count or 0)

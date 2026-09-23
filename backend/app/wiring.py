@@ -29,7 +29,7 @@ def build_registry(deps: HandlerDeps) -> HandlerRegistry:
     identity_handlers.register(
         registry, redis=deps.redis, settings=deps.settings, mailer=deps.mailer
     )
-    engagements_handlers.register(registry)
+    engagements_handlers.register(registry, esign=deps.esign, payroll=deps.payroll)
     return registry
 
 

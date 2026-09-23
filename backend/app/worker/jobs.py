@@ -7,6 +7,7 @@ import structlog
 from arq.worker import Retry
 
 from app.core.outbox.processing import process_event, purge_dispatched_events
+from app.modules.engagements.contracts import activate_due
 from app.modules.identity.grants import GrantService
 
 MAX_HANDLER_TRIES = 5
@@ -38,3 +39,8 @@ async def purge_outbox(ctx: dict[str, Any]) -> int:
 async def expire_access_grants(ctx: dict[str, Any]) -> int:
     async with ctx["sessionmaker"]() as session, session.begin():
         return await GrantService(session).sweep_expired()
+
+
+async def activate_due_engagements(ctx: dict[str, Any]) -> int:
+    async with ctx["sessionmaker"]() as session, session.begin():
+        return await activate_due(session)

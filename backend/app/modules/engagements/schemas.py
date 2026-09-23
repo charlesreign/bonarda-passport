@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import ClassVar, Self
+from typing import ClassVar, Literal, Self
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -132,6 +132,31 @@ class EngagementCreated(DomainEvent):
     worker_id: UUID
     project_id: UUID
     path: EngagementPath
+
+
+class EsignWebhook(BaseModel):
+    envelope_id: str = Field(min_length=1, max_length=120)
+    event: Literal["signed", "declined"]
+
+
+class ContractDispatchRequested(DomainEvent):
+    event_type: ClassVar[str] = "engagements.contract_dispatch_requested"
+
+
+class ContractSigned(DomainEvent):
+    event_type: ClassVar[str] = "engagements.contract_signed"
+
+
+class EngagementActivated(DomainEvent):
+    event_type: ClassVar[str] = "engagements.engagement_activated"
+    worker_id: UUID
+    project_id: UUID
+
+
+class EngagementCancelled(DomainEvent):
+    event_type: ClassVar[str] = "engagements.engagement_cancelled"
+    worker_id: UUID
+    project_id: UUID
 
 
 def engagement_read(engagement: Engagement, feedback: Feedback | None) -> EngagementRead:

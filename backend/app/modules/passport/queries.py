@@ -1,11 +1,13 @@
 """Read and status functions other modules use through passport.service."""
 
 from collections.abc import Iterable
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.outbox.writer import emit_event
 from app.modules.passport.enums import ConsentPurpose, OnboardingState, WorkerStatus
 from app.modules.passport.models import Skill, Worker
 from app.modules.passport.repository import (
@@ -13,7 +15,7 @@ from app.modules.passport.repository import (
     SkillClaimRepository,
     WorkerRepository,
 )
-from app.modules.passport.schemas import EngagementReadiness, WorkerRegion
+from app.modules.passport.schemas import EngagementReadiness, WorkerRegion, WorkerUpdated
 
 
 async def existing_skill_ids(session: AsyncSession, skill_ids: Iterable[UUID]) -> set[UUID]:
@@ -61,3 +63,27 @@ async def engagement_readiness(
         onboarding_complete=worker.onboarding_state is OnboardingState.PROFILE_COMPLETE,
         gaps=await profile_gaps(session, worker),
     )
+
+
+async def worker_name(session: AsyncSession, worker_id: UUID) -> str | None:
+    worker = await WorkerRepository(session).get(worker_id)
+    return worker.full_name if worker is not None else None
+
+
+async def mark_worker_active(session: AsyncSession, worker_id: UUID) -> None:
+    worker = await WorkerRepository(session).get(worker_id)
+    if worker is None or worker.status is not WorkerStatus.DORMANT:
+        return
+    worker.status = WorkerStatus.ACTIVE
+    worker.dormant_since = None
+    await emit_event(session, WorkerUpdated(aggregate_id=worker_id, fields=["status"]))
+
+
+async def mark_worker_dormant(session: AsyncSession, worker_id: UUID, *, since: date) -> None:
+    """FR-9.7: not engaged is dormant, not deleted."""
+    worker = await WorkerRepository(session).get(worker_id)
+    if worker is None or worker.status is not WorkerStatus.ACTIVE:
+        return
+    worker.status = WorkerStatus.DORMANT
+    worker.dormant_since = since
+    await emit_event(session, WorkerUpdated(aggregate_id=worker_id, fields=["status"]))

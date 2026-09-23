@@ -1,3 +1,4 @@
+import json
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -19,6 +20,7 @@ from app.modules.engagements.enums import EngagementPath, EngagementStatus, Work
 from app.modules.engagements.models import Engagement, Project, ProjectStaff
 from app.modules.identity.models import UserAccount
 from app.modules.identity.tokens import issue_access_token
+from app.modules.integrations.service import sign_payload
 from app.modules.passport.enums import OnboardingState, WorkerStatus, WorkerType
 from app.modules.passport.models import Skill, SkillClaim, Worker
 
@@ -230,3 +232,14 @@ async def drain_outbox(
                     .values(dispatched_at=utcnow())
                 )
     raise AssertionError("outbox did not drain")
+
+
+def esign_webhook(settings: Settings, payload: dict[str, object]) -> tuple[bytes, dict[str, str]]:
+    body = json.dumps(payload).encode()
+    timestamp = int(utcnow().timestamp())
+    secret = settings.esign_webhook_secret.get_secret_value()
+    return body, {
+        "Content-Type": "application/json",
+        "X-Bonarda-Timestamp": str(timestamp),
+        "X-Bonarda-Signature": sign_payload(secret, timestamp, body),
+    }

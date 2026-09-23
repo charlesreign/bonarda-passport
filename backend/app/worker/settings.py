@@ -17,6 +17,7 @@ from app.modules.integrations.service import build_esign, build_mailer, build_pa
 from app.wiring import HandlerDeps, build_registry
 from app.worker.jobs import (
     MAX_HANDLER_TRIES,
+    activate_due_engagements,
     expire_access_grants,
     purge_outbox,
     run_event_handler,
@@ -89,6 +90,7 @@ class WorkerSettings:
     cron_jobs: ClassVar[list[Any]] = [
         cron(purge_outbox, hour={2}, minute={30}),
         cron(expire_access_grants, minute=set(range(0, 60, 5))),
+        cron(activate_due_engagements, minute={0}),
     ]
     on_startup = startup
     on_shutdown = shutdown

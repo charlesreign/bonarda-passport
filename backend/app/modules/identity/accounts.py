@@ -81,6 +81,13 @@ async def find_worker_account(session: AsyncSession, email: str) -> WorkerAccoun
     return WorkerAccountRef(user_id=user.id, worker_id=user.worker_id)
 
 
+async def worker_contact(session: AsyncSession, worker_id: UUID) -> AccountContact | None:
+    user = await session.scalar(select(UserAccount).where(UserAccount.worker_id == worker_id))
+    if user is None:
+        return None
+    return AccountContact(email=user.email, locale=user.locale)
+
+
 async def active_pm_ids(session: AsyncSession, user_ids: Iterable[UUID]) -> set[UUID]:
     """The subset of `user_ids` that are active project managers."""
     ids = list(user_ids)
