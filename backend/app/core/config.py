@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     # Stuck-contract detector (spec §7.7).
     stuck_pending_minutes: int = 30
     stuck_awaiting_hours: int = 72
+    # An activated engagement still not signalled to payroll after this long
+    # has its EngagementActivated event re-emitted by the same 15-minute job.
+    payroll_signal_grace_minutes: int = 30
 
     @model_validator(mode="after")
     def _require_production_hardening(self) -> Self:

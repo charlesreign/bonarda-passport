@@ -1,5 +1,5 @@
 from collections.abc import Awaitable, Callable
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from httpx import AsyncClient
@@ -13,6 +13,8 @@ from app.core.time import utcnow
 from app.modules.engagements.contracts import activate_due
 from app.modules.engagements.enums import EngagementStatus
 from app.modules.engagements.models import Engagement
+from app.modules.engagements.payroll import signal_payroll
+from app.modules.engagements.stuck import flag_stuck
 from app.modules.identity.models import UserAccount
 from app.modules.integrations.service import FakeEsignAdapter, FakePayrollAdapter
 from app.modules.passport.enums import WorkerStatus
@@ -21,6 +23,7 @@ from tests.support import (
     bearer,
     engagement_terms,
     esign_webhook,
+    make_engagement,
     make_project,
     make_ready_worker,
     make_user,
@@ -98,6 +101,8 @@ async def test_signing_on_or_after_the_start_date_activates_and_signals_payroll(
     engagement = await _engagement(session, created["id"])
     assert engagement.status.value == "active"
     assert engagement.billable_start_at is not None
+    # Signed on or after the start date: billing starts at the signature.
+    assert engagement.billable_start_at == engagement.signed_at
     assert engagement.payroll_signaled_at is not None
     assert list(payroll.activations) == [engagement.id]
     await session.refresh(worker)
@@ -130,7 +135,13 @@ async def test_replayed_webhook_changes_nothing(
         )
     ).all()
     assert len(signed) == 1
-    assert len(payroll.activations) == 1
+    signaled = (
+        await session.scalars(
+            select(AuditLog).where(AuditLog.action == "engagement.payroll_signaled")
+        )
+    ).all()
+    assert len(signaled) == 1
+    assert list(payroll.activations) == [engagement.id]
 
 
 async def test_future_start_is_signed_then_activated_once_by_the_hourly_job(
@@ -248,3 +259,131 @@ async def test_retry_is_refused_once_signed_and_for_unstaffed_pms(
 
     assert (signed.status_code, signed.json()["code"]) == (409, "contract_not_retryable")
     assert (hidden.status_code, hidden.json()["code"]) == (404, "engagement_not_found")
+
+
+async def test_early_signature_bills_from_midnight_utc_on_the_start_date(
+    client: AsyncClient,
+    session: AsyncSession,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    drain: Drain,
+) -> None:
+    start = (utcnow() + timedelta(days=10)).date().isoformat()
+    created, _, _ = await _engage(client, session, settings, start_date=start)
+    await drain()
+    await _sign(
+        client, settings, (await _engagement(session, created["id"])).esign_envelope_id or ""
+    )
+    # The hourly job runs late: the start date was yesterday, signed days before.
+    yesterday = utcnow().date() - timedelta(days=1)
+    await session.execute(
+        update(Engagement)
+        .where(Engagement.id == created["id"])
+        .values(start_date=yesterday, signed_at=utcnow() - timedelta(days=3))
+    )
+    await session.commit()
+
+    async with sessionmaker() as s, s.begin():
+        assert await activate_due(s) == 1
+
+    engagement = await _engagement(session, created["id"])
+    assert engagement.billable_start_at == datetime(
+        yesterday.year, yesterday.month, yesterday.day, tzinfo=UTC
+    )
+
+
+async def test_signing_clears_the_stuck_flag(
+    client: AsyncClient,
+    session: AsyncSession,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    drain: Drain,
+) -> None:
+    created, worker, pm = await _engage(client, session, settings)
+    await drain()
+    await session.execute(
+        update(Engagement)
+        .where(Engagement.id == created["id"])
+        .values(contract_sent_at=utcnow() - timedelta(hours=73))
+    )
+    await session.commit()
+    async with sessionmaker() as s, s.begin():
+        assert await flag_stuck(s, settings) == 1
+    url = f"/api/v1/workers/{worker.id}/engagements"
+    before = (await client.get(url, headers=bearer(settings, pm))).json()
+
+    await _sign(
+        client, settings, (await _engagement(session, created["id"])).esign_envelope_id or ""
+    )
+    await drain()
+
+    after = (await client.get(url, headers=bearer(settings, pm))).json()
+    assert (before[0]["stuck"], after[0]["stuck"]) == (True, False)
+    assert (await _engagement(session, created["id"])).stuck_flagged_at is None
+
+
+async def test_declining_clears_the_stuck_flag(
+    client: AsyncClient,
+    session: AsyncSession,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    drain: Drain,
+) -> None:
+    created, _, _ = await _engage(client, session, settings)
+    await drain()
+    await session.execute(
+        update(Engagement).where(Engagement.id == created["id"]).values(stuck_flagged_at=utcnow())
+    )
+    await session.commit()
+
+    await _sign(
+        client,
+        settings,
+        (await _engagement(session, created["id"])).esign_envelope_id or "",
+        event="declined",
+    )
+
+    assert (await _engagement(session, created["id"])).stuck_flagged_at is None
+
+
+async def test_payroll_is_signalled_late_for_a_completed_engagement(
+    session: AsyncSession,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    payroll: FakePayrollAdapter,
+) -> None:
+    pm = await make_user(session, role=UserRole.PM)
+    worker, _ = await make_ready_worker(session)
+    engagement = await make_engagement(
+        session,
+        worker_id=worker.id,
+        project_id=(await make_project(session, staff=[pm])).id,
+        status=EngagementStatus.COMPLETED,
+    )
+    engagement.billable_start_at = utcnow() - timedelta(days=5)
+    await session.commit()
+
+    async with sessionmaker() as s, s.begin():
+        await signal_payroll(s, payroll, engagement.id)
+
+    await session.refresh(engagement)
+    assert engagement.payroll_signaled_at is not None
+    assert list(payroll.activations) == [engagement.id]
+
+
+async def test_payroll_is_not_signalled_before_activation(
+    session: AsyncSession,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    payroll: FakePayrollAdapter,
+) -> None:
+    worker, _ = await make_ready_worker(session)
+    engagement = await make_engagement(
+        session,
+        worker_id=worker.id,
+        project_id=(await make_project(session)).id,
+        status=EngagementStatus.CANCELLED,
+    )
+
+    async with sessionmaker() as s, s.begin():
+        await signal_payroll(s, payroll, engagement.id)
+
+    assert payroll.activations == {}

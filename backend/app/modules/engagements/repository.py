@@ -199,3 +199,15 @@ class EngagementRepository:
             .with_for_update(skip_locked=True)
         )
         return list((await self.session.scalars(stmt)).all())
+
+    async def payroll_unsignalled(self, *, billable_before: datetime) -> list[Engagement]:
+        stmt = (
+            select(Engagement)
+            .where(
+                Engagement.status.in_((EngagementStatus.ACTIVE, EngagementStatus.COMPLETED)),
+                Engagement.billable_start_at < billable_before,
+                Engagement.payroll_signaled_at.is_(None),
+            )
+            .with_for_update(skip_locked=True)
+        )
+        return list((await self.session.scalars(stmt)).all())

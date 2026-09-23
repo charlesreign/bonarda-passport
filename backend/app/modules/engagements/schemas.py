@@ -160,6 +160,8 @@ class EngagementCancelled(DomainEvent):
 
 
 class CompletionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     end_date: date | None = None
 
 
@@ -221,6 +223,8 @@ def engagement_read(engagement: Engagement, feedback: Feedback | None) -> Engage
         signed_at=engagement.signed_at,
         billable_start_at=engagement.billable_start_at,
         completed_at=engagement.completed_at,
-        stuck=engagement.stuck_flagged_at is not None,
+        stuck=engagement.stuck_flagged_at is not None
+        and engagement.status
+        in (EngagementStatus.PENDING_SIGNATURE, EngagementStatus.AWAITING_SIGNATURE),
         feedback=FeedbackRead.model_validate(feedback) if feedback is not None else None,
     )

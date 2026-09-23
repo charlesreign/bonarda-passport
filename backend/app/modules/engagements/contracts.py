@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, time
 from uuid import UUID
 
 import structlog
@@ -69,9 +70,13 @@ async def send_contract(session: AsyncSession, esign: EsignAdapter, engagement_i
 
 
 async def activate(session: AsyncSession, engagement: Engagement) -> None:
-    """Billable start (spec §2.2 #9): contract signed and start date reached."""
+    """Billable start (spec §2.2 #9): contract signed and start date reached.
+    Billing starts at whichever came last, not when the hourly job ran."""
+    if engagement.signed_at is None:
+        raise RuntimeError(f"engagement {engagement.id} is activated before it was signed")
+    start_of_day = datetime.combine(engagement.start_date, time.min, tzinfo=UTC)
     engagement.status = EngagementStatus.ACTIVE
-    engagement.billable_start_at = utcnow()
+    engagement.billable_start_at = max(engagement.signed_at, start_of_day)
     await write_audit(
         session,
         actor=None,
@@ -124,6 +129,7 @@ class ContractService:
             return  # replayed or out-of-order: nothing to do
         engagement.status = EngagementStatus.SIGNED
         engagement.signed_at = utcnow()
+        engagement.stuck_flagged_at = None
         await write_audit(
             self.session,
             actor=None,
@@ -139,6 +145,7 @@ class ContractService:
         if engagement.status not in _SENDABLE:
             return
         engagement.status = EngagementStatus.CANCELLED
+        engagement.stuck_flagged_at = None
         await write_audit(
             self.session,
             actor=None,
