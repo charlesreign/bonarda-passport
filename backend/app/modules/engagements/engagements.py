@@ -185,12 +185,26 @@ class EngagementService:
         terms = EngagementCreate.model_validate(
             data.model_dump(exclude={"prefilled_from_engagement_id"})
         )
-        engagement = await self.create(
-            actor,
-            worker_id,
-            terms,
-            path=EngagementPath.REACTIVATION,
-            idempotency_key=idempotency_key,
-            prefilled_from=data.prefilled_from_engagement_id,
-        )
+        try:
+            engagement = await self.create(
+                actor,
+                worker_id,
+                terms,
+                path=EngagementPath.REACTIVATION,
+                idempotency_key=idempotency_key,
+                prefilled_from=data.prefilled_from_engagement_id,
+            )
+        except Conflict as exc:
+            if exc.code not in ("idempotency_key_reused", "engagement_already_open"):
+                raise
+            # Lost a race against a concurrent replay of the same key: the
+            # winner's row may not have been visible when we checked above.
+            existing = await self.engagements.get_by_idempotency_key(idempotency_key)
+            if (
+                existing is not None
+                and existing.worker_id == worker_id
+                and existing.created_by_id == actor.user_id
+            ):
+                return existing, True
+            raise
         return engagement, False

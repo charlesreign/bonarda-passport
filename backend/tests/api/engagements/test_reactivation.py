@@ -1,6 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +10,7 @@ from app.core.config import Settings
 from app.core.enums import UserRole
 from app.modules.engagements.enums import EngagementStatus, WorkMode
 from app.modules.engagements.models import Engagement, Project
+from app.modules.engagements.repository import EngagementRepository
 from app.modules.passport.models import Worker
 from tests.support import (
     bearer,
@@ -20,6 +22,24 @@ from tests.support import (
 )
 
 KEY = {"Idempotency-Key": "reactivate-kofi-0001"}
+
+
+def _miss_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Simulates two requests racing past the idempotency-key lookup: the
+    first call (the one before `create()`) reports no existing row, as if
+    the concurrent winner's insert were not yet visible; every later call
+    (including the post-conflict fallback in `reactivate()`) behaves
+    normally."""
+    real = EngagementRepository.get_by_idempotency_key
+    calls = {"n": 0}
+
+    async def flaky(self: EngagementRepository, key: str) -> Engagement | None:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return None
+        return await real(self, key)
+
+    monkeypatch.setattr(EngagementRepository, "get_by_idempotency_key", flaky)
 
 
 def _prefill(worker_id: object) -> str:
@@ -202,3 +222,57 @@ async def test_first_timer_cannot_be_reactivated(
     )
 
     assert response.json()["code"] == "no_prior_engagement"
+
+
+async def test_reactivation_replays_across_a_race_for_the_same_pm(
+    client: AsyncClient, session: AsyncSession, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two requests race past the idempotency-key lookup (double-click, or a
+    client retry that overlaps the first attempt). The loser must still see
+    the winner's engagement with 200, not a 409."""
+    ama = await make_user(session, role=UserRole.PM)
+    project = await make_project(session, staff=[ama], name="New")
+    worker, latest, _ = await _kofi_with_history(session)
+    body = engagement_terms(project.id, prefilled_from_engagement_id=str(latest.id))
+    headers = bearer(settings, ama) | KEY
+
+    first = await client.post(_reactivate(worker.id), json=body, headers=headers)
+    assert first.status_code == 201
+
+    _miss_once(monkeypatch)
+    second = await client.post(_reactivate(worker.id), json=body, headers=headers)
+
+    assert second.status_code == 200
+    assert second.json()["id"] == first.json()["id"]
+    new = (
+        await session.scalars(select(Engagement).where(Engagement.project_id == project.id))
+    ).all()
+    assert len(new) == 1
+
+
+async def test_reactivation_still_conflicts_when_a_different_pm_races_the_key(
+    client: AsyncClient, session: AsyncSession, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The race-replay fallback must not hand a different PM's or a
+    different worker's engagement back as a 'replay'."""
+    ama = await make_user(session, role=UserRole.PM)
+    mercy = await make_user(session, role=UserRole.PM, email="mercy.pm@example.com")
+    project = await make_project(session, staff=[ama, mercy], name="New")
+    kofi, _, old = await _kofi_with_history(session)
+    grace, _ = await make_ready_worker(session, email="grace@example.com")
+    await make_engagement(session, worker_id=grace.id, project_id=old.id)
+
+    first = await client.post(
+        _reactivate(kofi.id), json=engagement_terms(project.id), headers=bearer(settings, ama) | KEY
+    )
+    assert first.status_code == 201
+
+    _miss_once(monkeypatch)
+    second = await client.post(
+        _reactivate(grace.id),
+        json=engagement_terms(project.id),
+        headers=bearer(settings, mercy) | KEY,
+    )
+
+    assert second.status_code == 409
+    assert second.json()["code"] == "idempotency_key_reused"
