@@ -96,6 +96,24 @@ async def test_prefill_returns_the_latest_non_cancelled_terms(
     assert "feedback" not in body
 
 
+async def test_prefill_does_not_carry_access_notes(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    ama = await make_user(session, role=UserRole.PM)
+    project = await make_project(session, staff=[ama], name="New")
+    worker, latest, _ = await _kofi_with_history(session)
+    latest.contract_terms = {"scope": "Maintain the pipeline", "access_notes": "VPN key 0451"}
+    await session.commit()
+
+    response = await client.get(
+        _prefill(worker.id), params={"project_id": str(project.id)}, headers=bearer(settings, ama)
+    )
+
+    assert response.status_code == 200
+    assert response.json()["contract_terms"] == {"scope": "Maintain the pipeline"}
+    assert "VPN key 0451" not in response.text
+
+
 async def test_prefill_without_history_is_404(
     client: AsyncClient, session: AsyncSession, settings: Settings
 ) -> None:

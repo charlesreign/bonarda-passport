@@ -15,10 +15,10 @@ from app.modules.engagements.models import Engagement, Project
 from app.modules.engagements.repository import EngagementRepository, ProjectRepository
 from app.modules.engagements.schemas import (
     CompletionRequest,
-    ContractTerms,
     EngagementCompleted,
     EngagementCreate,
     EngagementCreated,
+    PrefillTerms,
     ReactivationCreate,
     ReactivationPrefill,
 )
@@ -194,7 +194,7 @@ class EngagementService:
             currency=latest.currency,
             work_mode=latest.work_mode,
             location=latest.location,
-            contract_terms=ContractTerms.model_validate(latest.contract_terms),
+            contract_terms=PrefillTerms(scope=latest.contract_terms["scope"]),
             last_days_to_start=days,
         )
 

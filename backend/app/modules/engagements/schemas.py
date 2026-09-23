@@ -110,16 +110,23 @@ class EngagementCreate(BaseModel):
         return self
 
 
+class PrefillTerms(BaseModel):
+    """Prefill carries the scope only: access notes (credentials, VPN and
+    site details) belong to one engagement and need detail visibility."""
+
+    scope: str
+
+
 class ReactivationPrefill(BaseModel):
     """Contract terms from the most recent engagement (FR-4.4). No history,
-    no feedback: prefill needs only summary visibility."""
+    no feedback, no access notes: prefill needs only summary visibility."""
 
     prefilled_from_engagement_id: UUID
     rate: Decimal
     currency: str
     work_mode: WorkMode
     location: str | None
-    contract_terms: ContractTerms
+    contract_terms: PrefillTerms
     last_days_to_start: float | None
 
 
