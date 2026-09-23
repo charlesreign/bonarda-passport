@@ -39,3 +39,6 @@ prometheus-fastapi-instrumentator==7.0.0
 # --- Utilities ---
 orjson==3.10.7
 python-dotenv==1.0.1
+
+# --- Email ---
+aiosmtplib==3.0.2

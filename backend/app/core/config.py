@@ -58,6 +58,11 @@ class Settings(BaseSettings):
 
     scim_bearer_token: SecretStr
 
+    # smtp://user:pass@host:port (STARTTLS when offered) or smtps://… (implicit TLS).
+    # Unset in dev/test means mail is written to the log instead.
+    smtp_url: SecretStr | None = None
+    mail_from: str = "Bonarda Works <no-reply@bonarda.works>"
+
     @model_validator(mode="after")
     def _require_production_hardening(self) -> Self:
         """Outside dev/test, refuse to start with a weak or placeholder secret,
