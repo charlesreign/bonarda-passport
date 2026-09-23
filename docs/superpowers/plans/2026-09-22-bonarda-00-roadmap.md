@@ -31,7 +31,6 @@ Each item below must become a named task with a test in the plan listed.
 | any | FastAPI is pinned to 0.115.0 because `get_session` relies on yield-dependency teardown running before the response is sent; re-verify before upgrading. |
 | 4 | Consent and onboarding audit rows carry only `after`, no `before`. |
 | 6 | Outbox handler retry budget (~30 s over 5 tries) is too short for SMTP outages; lengthen for mail handlers and add a dead-letter consumer with alerting. |
-| 2B | `WorkerUpdate` validates availability against the patch, not the merged state: a worker already at `available_from` cannot send only a new date. |
 | 4 | Audit `full_name` changes (`worker.renamed`, before/after) before contracts print it; don't emit `WorkerUpdated` for no-op PATCHes. |
 | 5 | Type `locale` response fields as the `Locale` enum (`MeResponse`, `AccountContact`, `WorkerSelf`) for the generated client. |
 | any | Visibility guard compares Python field names only: aliases (`Field(alias="worker_id")`), untyped `dict` bodies and unresolved forward references are not detected. |
