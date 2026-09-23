@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     # Regions a worker or project can belong to (NFR-4.3). Pilot: Ghana + one EU country.
     data_regions: list[str] = Field(default_factory=lambda: ["GH", "EU"])
 
+    # E-sign and payroll adapters (spec §5.1 integrations). Only fakes exist
+    # until providers are selected — a pre-live gate (spec §10).
+    esign_provider: Literal["fake"] = "fake"
+    payroll_provider: Literal["fake"] = "fake"
+    esign_webhook_secret: SecretStr
+
     @model_validator(mode="after")
     def _require_production_hardening(self) -> Self:
         """Outside dev/test, refuse to start with a weak or placeholder secret,
@@ -74,6 +80,7 @@ class Settings(BaseSettings):
             return self
         _check_strong_secret(self.jwt_signing_key, field="jwt_signing_key")
         _check_strong_secret(self.scim_bearer_token, field="scim_bearer_token")
+        _check_strong_secret(self.esign_webhook_secret, field="esign_webhook_secret")
         _check_no_placeholder(self.oidc_client_secret, field="oidc_client_secret")
         if not self.cookie_secure:
             raise ValueError("cookie_secure must be true outside dev/test")

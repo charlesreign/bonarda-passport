@@ -13,7 +13,7 @@ from app.core.config import get_settings
 from app.core.db.session import create_engine
 from app.core.logging import configure_logging
 from app.core.outbox.relay import listen_dsn, run_relay
-from app.modules.integrations.service import build_mailer
+from app.modules.integrations.service import build_esign, build_mailer, build_payroll
 from app.wiring import HandlerDeps, build_registry
 from app.worker.jobs import (
     MAX_HANDLER_TRIES,
@@ -53,7 +53,13 @@ async def startup(ctx: dict[str, Any]) -> None:
     )
     ctx["handler_redis"] = handler_redis
     ctx["registry"] = build_registry(
-        HandlerDeps(settings=settings, redis=handler_redis, mailer=build_mailer(settings))
+        HandlerDeps(
+            settings=settings,
+            redis=handler_redis,
+            mailer=build_mailer(settings),
+            esign=build_esign(settings),
+            payroll=build_payroll(settings),
+        )
     )
     ctx["relay_stop"] = asyncio.Event()
     relay_task = asyncio.create_task(

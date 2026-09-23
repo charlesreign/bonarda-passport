@@ -12,6 +12,7 @@ from app.modules.engagements import handlers as engagements_handlers
 from app.modules.engagements.service import project_relationship
 from app.modules.identity import handlers as identity_handlers
 from app.modules.identity.service import VisibilitySource
+from app.modules.integrations.service import EsignAdapter, PayrollAdapter
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,6 +20,8 @@ class HandlerDeps:
     settings: Settings
     redis: Redis
     mailer: Mailer
+    esign: EsignAdapter
+    payroll: PayrollAdapter
 
 
 def build_registry(deps: HandlerDeps) -> HandlerRegistry:

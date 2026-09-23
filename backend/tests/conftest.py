@@ -21,6 +21,7 @@ from app.core.config import Settings
 from app.core.db.base import Base
 from app.core.enums import UserRole
 from app.main import create_app
+from app.modules.integrations.service import FakeEsignAdapter, FakePayrollAdapter
 from app.wiring import HandlerDeps, build_registry
 from tests.support import RecordingMailer, alembic_config, drain_outbox
 
@@ -58,6 +59,7 @@ def settings() -> Settings:
             "bonarda-admin": UserRole.ADMIN,
         },
         scim_bearer_token=SecretStr("scim-test-token"),
+        esign_webhook_secret=SecretStr("esign-webhook-secret-for-tests-0123456789"),
     )
 
 
@@ -112,13 +114,31 @@ def mailer(app: FastAPI) -> RecordingMailer:
 
 
 @pytest.fixture
+def esign() -> FakeEsignAdapter:
+    return FakeEsignAdapter()
+
+
+@pytest.fixture
+def payroll() -> FakePayrollAdapter:
+    return FakePayrollAdapter()
+
+
+@pytest.fixture
 def drain(
     app: FastAPI,
     sessionmaker: async_sessionmaker[AsyncSession],
     mailer: RecordingMailer,
+    esign: FakeEsignAdapter,
+    payroll: FakePayrollAdapter,
 ) -> Callable[[], Awaitable[None]]:
     registry = build_registry(
-        HandlerDeps(settings=app.state.settings, redis=app.state.redis, mailer=mailer)
+        HandlerDeps(
+            settings=app.state.settings,
+            redis=app.state.redis,
+            mailer=mailer,
+            esign=esign,
+            payroll=payroll,
+        )
     )
 
     async def _drain() -> None:
