@@ -46,6 +46,8 @@ Each item below must become a named task with a test in the plan listed.
 | 4 | `send_contract` retries into dead-letter when the worker account is gone; cancel the engagement instead. |
 | any | Reactivation replay ignores body differences (same key, different terms returns the original); consider 422 on mismatch. |
 | 3 | `has_history` counts unsigned in-flight engagements, which skews FR-5.3 first-time vs repeat metrics; reactivation also re-checks profile gaps. |
+| 4 | A role change at OIDC login ends staffing and revokes sessions but, unlike SCIM `_revoke`, does not close open access grants or write an `access.revoked` audit row (FR-9.5). A grant only acts for the PM role, but an unexpired one revives if the IdP makes the user a PM again. Reuse SCIM's revocation path from the OIDC reconcile. |
+| any | Payroll-signal recovery measures its grace period from `billable_start_at`, not from activation. An engagement signed early is activated by the hourly job up to ~1 h after midnight UTC, so the next 15-min run can re-emit `EngagementActivated` while the original is still in the outbox: harmless (the handler is idempotent) but it writes a spurious `engagement.payroll_signal_retried` audit row and warning. Key recovery off the activation time. |
 
 ## Implementation deviations from the spec (recorded as they happen)
 
