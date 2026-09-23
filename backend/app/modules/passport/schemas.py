@@ -99,6 +99,8 @@ class WorkerSelf(_DetailFields):
 
 WorkerView = Annotated[WorkerSummary | WorkerDetail | WorkerSelf, Field(discriminator="view")]
 
+_REQUIRED_WHEN_SET = ("full_name", "languages", "availability_status")
+
 
 class WorkerUpdate(BaseModel):
     """Self-editable fields only (FR-1.5). Unknown fields are rejected."""
@@ -118,8 +120,9 @@ class WorkerUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:
-        if "full_name" in self.model_fields_set and self.full_name is None:
-            raise ValueError("full_name cannot be cleared")
+        for field in _REQUIRED_WHEN_SET:
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be cleared")
         wants_date = self.availability_status is AvailabilityStatus.AVAILABLE_FROM
         if wants_date and self.available_from is None:
             raise ValueError("available_from is required with availability_status=available_from")

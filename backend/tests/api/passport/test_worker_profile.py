@@ -138,6 +138,8 @@ async def test_worker_updates_their_profile(
         {"availability_status": "available_from"},
         {"available_from": "2026-11-01"},
         {"full_name": None},
+        {"languages": None},
+        {"availability_status": None},
         {"worker_id": str(uuid4())},
     ],
 )
@@ -151,6 +153,21 @@ async def test_invalid_profile_updates_are_rejected(
     )
 
     assert response.status_code == 422
+
+
+async def test_base_location_can_be_cleared(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    _, account = await make_worker(session)
+    headers = bearer(settings, account)
+    await client.patch("/api/v1/workers/me", json={"base_location": "Accra"}, headers=headers)
+
+    response = await client.patch(
+        "/api/v1/workers/me", json={"base_location": None}, headers=headers
+    )
+
+    assert response.status_code == 200
+    assert response.json()["base_location"] is None
 
 
 async def test_becoming_available_clears_the_available_from_date(
