@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit.writer import write_audit
 from app.core.context import Actor
-from app.core.errors import Conflict, NotFound
+from app.core.errors import Conflict, NotFound, UnprocessableEntity
 from app.core.outbox.writer import emit_event
 from app.modules.identity.service import Visibility, account_contact
 from app.modules.passport.dependencies import WorkerActor
@@ -80,9 +80,20 @@ class ProfileService:
     async def update_self(self, who: WorkerActor, data: WorkerUpdate) -> WorkerSelf:
         worker = await self._worker(who.worker_id)
         changes = data.model_dump(exclude_unset=True)
-        status = changes.get("availability_status")
-        if status is not None and status is not AvailabilityStatus.AVAILABLE_FROM:
+        status = changes.get("availability_status", worker.availability_status)
+        if "availability_status" in changes and status is not AvailabilityStatus.AVAILABLE_FROM:
             changes["available_from"] = None
+        available_from = changes.get("available_from", worker.available_from)
+        if status is AvailabilityStatus.AVAILABLE_FROM and available_from is None:
+            raise UnprocessableEntity(
+                "available_from is required with availability_status=available_from",
+                code="availability_date_required",
+            )
+        if available_from is not None and status is not AvailabilityStatus.AVAILABLE_FROM:
+            raise UnprocessableEntity(
+                "available_from needs availability_status=available_from",
+                code="availability_status_mismatch",
+            )
         for field, value in changes.items():
             setattr(worker, field, value)
         if changes:

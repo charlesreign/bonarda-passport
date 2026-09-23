@@ -135,8 +135,6 @@ async def test_worker_updates_their_profile(
     "body",
     [
         {"languages": ["EN"]},
-        {"availability_status": "available_from"},
-        {"available_from": "2026-11-01"},
         {"full_name": None},
         {"languages": None},
         {"availability_status": None},
@@ -153,6 +151,49 @@ async def test_invalid_profile_updates_are_rejected(
     )
 
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("body", "code"),
+    [
+        ({"availability_status": "available_from"}, "availability_date_required"),
+        ({"available_from": "2026-11-01"}, "availability_status_mismatch"),
+    ],
+)
+async def test_inconsistent_availability_is_rejected_with_a_code(
+    client: AsyncClient,
+    session: AsyncSession,
+    settings: Settings,
+    body: dict[str, object],
+    code: str,
+) -> None:
+    _, account = await make_worker(session)
+
+    response = await client.patch(
+        "/api/v1/workers/me", json=body, headers=bearer(settings, account)
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == code
+
+
+async def test_worker_already_available_from_can_move_the_date(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    _, account = await make_worker(session)
+    headers = bearer(settings, account)
+    await client.patch(
+        "/api/v1/workers/me",
+        json={"availability_status": "available_from", "available_from": "2026-11-01"},
+        headers=headers,
+    )
+
+    response = await client.patch(
+        "/api/v1/workers/me", json={"available_from": "2026-12-01"}, headers=headers
+    )
+
+    assert response.status_code == 200
+    assert response.json()["available_from"] == "2026-12-01"
 
 
 async def test_base_location_can_be_cleared(

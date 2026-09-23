@@ -130,11 +130,6 @@ class WorkerUpdate(BaseModel):
         for field in _REQUIRED_WHEN_SET:
             if field in self.model_fields_set and getattr(self, field) is None:
                 raise ValueError(f"{field} cannot be cleared")
-        wants_date = self.availability_status is AvailabilityStatus.AVAILABLE_FROM
-        if wants_date and self.available_from is None:
-            raise ValueError("available_from is required with availability_status=available_from")
-        if self.available_from is not None and not wants_date:
-            raise ValueError("available_from needs availability_status=available_from")
         return self
 
 

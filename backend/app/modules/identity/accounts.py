@@ -74,9 +74,15 @@ async def provision_worker_account(
 async def find_worker_account(session: AsyncSession, email: str) -> WorkerAccountRef | None:
     """Looks up an existing worker sign-in account by email (normalized here so
     audit/lookups agree), for an idempotent re-invite. None unless the account
-    exists, has role WORKER and a worker_id."""
+    exists, has role WORKER, a worker_id and is ACTIVE (a revoked account is
+    not "still invited")."""
     user = await UserRepository(session).get_by_email(normalize_email(email))
-    if user is None or user.role is not UserRole.WORKER or user.worker_id is None:
+    if (
+        user is None
+        or user.role is not UserRole.WORKER
+        or user.worker_id is None
+        or user.status is not AccountStatus.ACTIVE
+    ):
         return None
     return WorkerAccountRef(user_id=user.id, worker_id=user.worker_id)
 

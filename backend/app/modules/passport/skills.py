@@ -1,9 +1,11 @@
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit.writer import write_audit
 from app.core.context import Actor
+from app.core.db.errors import violated_constraint
 from app.core.errors import Conflict, NotFound
 from app.core.outbox.writer import emit_event
 from app.modules.passport.dependencies import WorkerActor
@@ -22,8 +24,14 @@ class SkillService:
         if await self.skills.get_by_slug(data.slug) is not None:
             raise Conflict("A skill with this slug exists", code="skill_slug_taken")
         names = {str(locale): name.strip() for locale, name in data.name_i18n.items()}
-        skill = self.skills.add(Skill(slug=data.slug, name_i18n=names))
-        await self.session.flush()
+        try:
+            async with self.session.begin_nested():
+                skill = self.skills.add(Skill(slug=data.slug, name_i18n=names))
+                await self.session.flush()
+        except IntegrityError as exc:
+            if violated_constraint(exc) != "uq_skills_slug":
+                raise
+            raise Conflict("A skill with this slug exists", code="skill_slug_taken") from exc
         await write_audit(
             self.session,
             actor=actor,
@@ -53,14 +61,21 @@ class ClaimService:
             raise NotFound("Skill not found", code="skill_not_found")
         if await self.claims.get(who.worker_id, skill_id) is not None:
             raise Conflict("You already list this skill", code="skill_already_claimed")
-        claim = self.claims.add(
-            SkillClaim(
-                worker_id=who.worker_id,
-                skill_id=skill_id,
-                verification_status=VerificationStatus.SELF_REPORTED,
-                source=ClaimSource.SELF,
-            )
-        )
+        try:
+            async with self.session.begin_nested():
+                claim = self.claims.add(
+                    SkillClaim(
+                        worker_id=who.worker_id,
+                        skill_id=skill_id,
+                        verification_status=VerificationStatus.SELF_REPORTED,
+                        source=ClaimSource.SELF,
+                    )
+                )
+                await self.session.flush()
+        except IntegrityError as exc:
+            if violated_constraint(exc) != "uq_skill_claims_worker_skill":
+                raise
+            raise Conflict("You already list this skill", code="skill_already_claimed") from exc
         await emit_event(self.session, WorkerUpdated(aggregate_id=who.worker_id, fields=["skills"]))
         return WorkerSkill(
             skill_id=skill.id, slug=skill.slug, verification_status=claim.verification_status

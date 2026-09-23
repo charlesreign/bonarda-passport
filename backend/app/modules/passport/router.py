@@ -96,7 +96,11 @@ async def set_my_consent(
     return await ConsentService(session).set(who, purpose, body.granted)
 
 
-@router.post("/workers/invitations", status_code=201)
+@router.post(
+    "/workers/invitations",
+    status_code=201,
+    responses={200: {"model": InvitationRead, "description": "Invitation resent"}},
+)
 async def invite_worker(
     body: InvitationCreate,
     actor: Inviter,

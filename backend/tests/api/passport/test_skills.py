@@ -11,6 +11,7 @@ from app.core.enums import UserRole
 from app.core.outbox.models import OutboxEvent
 from app.modules.passport.enums import VerificationStatus
 from app.modules.passport.models import Skill, SkillClaim
+from app.modules.passport.repository import SkillClaimRepository, SkillRepository
 from tests.support import bearer, make_user, make_worker
 
 
@@ -71,6 +72,50 @@ async def test_duplicate_slug_is_a_conflict(
 
     assert response.status_code == 409
     assert response.json()["code"] == "skill_slug_taken"
+
+
+async def test_concurrent_duplicate_slug_is_a_conflict_not_a_crash(
+    client: AsyncClient, session: AsyncSession, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ops = await make_user(session, role=UserRole.PEOPLE_OPS)
+    await _skill(session, "data-analysis", "Data analysis")
+
+    async def not_found(self: SkillRepository, slug: str) -> None:
+        return None  # simulate the race: the pre-check misses the other insert
+
+    monkeypatch.setattr(SkillRepository, "get_by_slug", not_found)
+
+    response = await client.post(
+        "/api/v1/skills",
+        json={"slug": "data-analysis", "name_i18n": {"en": "Data analysis"}},
+        headers=bearer(settings, ops),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "skill_slug_taken"
+
+
+async def test_concurrent_duplicate_claim_is_a_conflict_not_a_crash(
+    client: AsyncClient, session: AsyncSession, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    worker, account = await make_worker(session)
+    skill = await _skill(session, "data-analysis", "Data analysis")
+    session.add(SkillClaim(worker_id=worker.id, skill_id=skill.id))
+    await session.commit()
+
+    async def not_found(self: SkillClaimRepository, worker_id: object, skill_id: object) -> None:
+        return None
+
+    monkeypatch.setattr(SkillClaimRepository, "get", not_found)
+
+    response = await client.post(
+        "/api/v1/workers/me/skills",
+        json={"skill_id": str(skill.id)},
+        headers=bearer(settings, account),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "skill_already_claimed"
 
 
 async def test_pm_cannot_add_skills(

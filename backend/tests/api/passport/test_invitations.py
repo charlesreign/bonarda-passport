@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit.models import AuditLog
 from app.core.config import Settings
-from app.core.enums import UserRole
+from app.core.enums import AccountStatus, UserRole
 from app.modules.identity.models import UserAccount
 from app.modules.passport.enums import OnboardingState
 from app.modules.passport.models import Worker
@@ -168,6 +168,76 @@ async def test_invalid_invitations_are_rejected(
     response = await client.post(URL, json=BODY | override, headers=bearer(settings, pm))
 
     assert response.status_code == 422
+
+
+async def test_resend_updates_the_invited_workers_details(
+    client: AsyncClient,
+    session: AsyncSession,
+    settings: Settings,
+    mailer: RecordingMailer,
+    drain: Drain,
+) -> None:
+    pm = await make_user(session, role=UserRole.PM)
+    headers = bearer(settings, pm)
+    await client.post(URL, json=BODY, headers=headers)
+
+    response = await client.post(
+        URL, json=BODY | {"full_name": "Grace A. Owusu", "data_region": "EU"}, headers=headers
+    )
+
+    assert response.status_code == 200
+    worker = (await session.scalars(select(Worker))).one()
+    await session.refresh(worker)
+    assert (worker.full_name, worker.data_region) == ("Grace A. Owusu", "EU")
+    resent = (
+        await session.scalars(select(AuditLog).where(AuditLog.action == "worker.invitation_resent"))
+    ).one()
+    assert resent.before == {
+        "full_name": "Grace Owusu",
+        "data_region": "GH",
+        "worker_type": "freelancer",
+    }
+    assert resent.after == {
+        "full_name": "Grace A. Owusu",
+        "data_region": "EU",
+        "worker_type": "freelancer",
+    }
+
+
+async def test_resends_are_limited_per_hour(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    pm = await make_user(session, role=UserRole.PM)
+    headers = bearer(settings, pm)
+    await client.post(URL, json=BODY, headers=headers)
+    statuses = [(await client.post(URL, json=BODY, headers=headers)).status_code for _ in range(4)]
+
+    assert statuses == [200, 200, 200, 429]
+
+
+async def test_revoked_invited_account_is_not_resent(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    pm = await make_user(session, role=UserRole.PM)
+    headers = bearer(settings, pm)
+    await client.post(URL, json=BODY, headers=headers)
+    account = (
+        await session.scalars(select(UserAccount).where(UserAccount.role == UserRole.WORKER))
+    ).one()
+    account.status = AccountStatus.REVOKED
+    await session.commit()
+
+    response = await client.post(URL, json=BODY, headers=headers)
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "email_in_use"
+
+
+async def test_openapi_documents_the_resend_response(client: AsyncClient) -> None:
+    spec = (await client.get("/openapi.json")).json()
+
+    responses = spec["paths"]["/api/v1/workers/invitations"]["post"]["responses"]
+    assert {"200", "201"} <= set(responses)
 
 
 async def test_invitation_region_must_be_configured(
