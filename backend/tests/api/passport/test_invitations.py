@@ -192,15 +192,14 @@ async def test_resend_updates_the_invited_workers_details(
     resent = (
         await session.scalars(select(AuditLog).where(AuditLog.action == "worker.invitation_resent"))
     ).one()
-    assert resent.before == {
-        "full_name": "Grace Owusu",
-        "data_region": "GH",
-        "worker_type": "freelancer",
-    }
+    # audit_log is append-only and outlives erasure (spec §6.3): record that
+    # the name changed, never the name itself.
+    assert "Grace" not in json.dumps([resent.before, resent.after])
+    assert resent.before == {"data_region": "GH", "worker_type": "freelancer"}
     assert resent.after == {
-        "full_name": "Grace A. Owusu",
         "data_region": "EU",
         "worker_type": "freelancer",
+        "changed": ["data_region", "full_name"],
     }
 
 

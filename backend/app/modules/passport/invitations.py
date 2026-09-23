@@ -99,19 +99,16 @@ class InvitationService:
                 "This invitation was resent too often; try again later",
                 code="invitation_resend_limited",
             )
-        before = {
-            "full_name": worker.full_name,
-            "data_region": worker.data_region,
-            "worker_type": worker.worker_type.value,
-        }
+        previous = _invitation_details(worker)
         worker.full_name = data.full_name.strip()
         worker.data_region = data.data_region
         worker.worker_type = data.worker_type
-        after = {
-            "full_name": worker.full_name,
-            "data_region": worker.data_region,
-            "worker_type": worker.worker_type.value,
-        }
+        current = _invitation_details(worker)
+        changed = sorted(k for k in current if current[k] != previous[k])
+        # audit_log is append-only and survives erasure (spec §6.3): record
+        # that the name changed, never the name itself.
+        before = {k: v for k, v in previous.items() if k not in _PERSONAL}
+        after = {k: v for k, v in current.items() if k not in _PERSONAL} | {"changed": changed}
         await write_audit(
             self.session,
             actor=actor,
@@ -128,3 +125,15 @@ class InvitationService:
             onboarding_state=worker.onboarding_state,
             resent=True,
         )
+
+
+_PERSONAL = frozenset({"full_name"})
+
+
+def _invitation_details(worker: Worker) -> dict[str, str]:
+    """The fields a re-invitation may change."""
+    return {
+        "full_name": worker.full_name,
+        "data_region": worker.data_region,
+        "worker_type": worker.worker_type.value,
+    }
