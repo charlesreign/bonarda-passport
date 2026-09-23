@@ -19,7 +19,7 @@ from app.core.outbox.processing import process_event
 from app.core.outbox.registry import HandlerRegistry
 from app.core.time import utcnow
 from app.modules.engagements.enums import EngagementPath, EngagementStatus, WorkMode
-from app.modules.engagements.models import Engagement, Project, ProjectStaff
+from app.modules.engagements.models import Engagement, Feedback, Project, ProjectStaff
 from app.modules.governance.models import PolicyConfig
 from app.modules.identity.models import UserAccount
 from app.modules.identity.tokens import issue_access_token
@@ -172,6 +172,7 @@ async def make_engagement(
     currency: str = "GHS",
     work_mode: WorkMode = WorkMode.REMOTE,
     scope: str = "Build the data pipeline",
+    completed_at: datetime | None = None,
 ) -> Engagement:
     engagement = Engagement(
         worker_id=worker_id,
@@ -185,6 +186,7 @@ async def make_engagement(
         work_mode=work_mode,
         contract_terms={"scope": scope, "access_notes": None},
         confirmed_at=utcnow(),
+        completed_at=completed_at or (utcnow() if status is EngagementStatus.COMPLETED else None),
     )
     session.add(engagement)
     await session.commit()
@@ -266,3 +268,31 @@ def esign_webhook(settings: Settings, payload: dict[str, object]) -> tuple[bytes
         "X-Bonarda-Timestamp": str(timestamp),
         "X-Bonarda-Signature": sign_payload(secret, timestamp, body),
     }
+
+
+POSITIVE_ANSWERS = {
+    "delivered_on_agreed_dates": True,
+    "handled_scope_changes_without_escalation": True,
+    "would_reengage": True,
+}
+
+
+async def make_feedback(
+    session: AsyncSession,
+    *,
+    engagement_id: UUID,
+    reviewer_id: UUID | None,
+    answers: dict[str, bool] | None = None,
+    skill_ids: list[UUID] | None = None,
+    excluded: bool = False,
+) -> Feedback:
+    feedback = Feedback(
+        engagement_id=engagement_id,
+        reviewer_id=reviewer_id,
+        structured_answers=dict(answers or POSITIVE_ANSWERS),
+        skill_ids_demonstrated=skill_ids or [],
+        excluded_from_standing=excluded,
+    )
+    session.add(feedback)
+    await session.commit()
+    return feedback

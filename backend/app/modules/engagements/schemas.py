@@ -210,6 +210,18 @@ class FeedbackSubmitted(DomainEvent):
     skill_ids_demonstrated: list[UUID]
 
 
+class StandingRecord(BaseModel):
+    """One completed engagement as the standing engine sees it (spec §7.3)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    engagement_id: UUID
+    completed_on: date
+    reviewer_id: UUID | None
+    answers: dict[str, bool] | None
+    excluded: bool
+
+
 def engagement_read(engagement: Engagement, feedback: Feedback | None) -> EngagementRead:
     return EngagementRead(
         id=engagement.id,
