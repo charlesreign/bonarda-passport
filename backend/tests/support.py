@@ -186,6 +186,20 @@ async def make_engagement(
     return engagement
 
 
+def engagement_terms(project_id: UUID, **overrides: object) -> dict[str, object]:
+    terms: dict[str, object] = {
+        "project_id": str(project_id),
+        "start_date": utcnow().date().isoformat(),
+        "rate": "450.00",
+        "currency": "GHS",
+        "work_mode": "remote",
+        "location": None,
+        "contract_terms": {"scope": "Build the data pipeline", "access_notes": "VPN and repo"},
+    }
+    terms.update(overrides)
+    return terms
+
+
 async def drain_outbox(
     sessionmaker: async_sessionmaker[AsyncSession],
     registry: HandlerRegistry,

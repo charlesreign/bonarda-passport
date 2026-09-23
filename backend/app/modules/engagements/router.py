@@ -6,9 +6,12 @@ from fastapi import APIRouter, Depends
 from app.core.context import Actor
 from app.core.db.session import SessionDep
 from app.core.deps import SettingsDep
+from app.modules.engagements.engagements import EngagementService
+from app.modules.engagements.enums import EngagementPath
 from app.modules.engagements.projects import ProjectService
 from app.modules.engagements.repository import EngagementRepository
 from app.modules.engagements.schemas import (
+    EngagementCreate,
     EngagementRead,
     ProjectCreate,
     ProjectRead,
@@ -26,6 +29,7 @@ from app.modules.identity.service import (
 router = APIRouter(prefix="/api/v1", tags=["engagements"])
 
 ProjectManager = Annotated[Actor, Depends(require_permission(Permission.PROJECT_MANAGE))]
+EngagementCreator = Annotated[Actor, Depends(require_permission(Permission.ENGAGEMENT_CREATE))]
 
 
 @router.post("/projects", status_code=201)
@@ -70,3 +74,17 @@ async def list_worker_engagements(
     engagements = await repo.list_for_worker(worker_id)
     feedback = await repo.feedback_for([e.id for e in engagements])
     return [engagement_read(e, feedback.get(e.id)) for e in engagements]
+
+
+@router.post("/workers/{worker_id}/engagements", status_code=201)
+async def create_first_time_engagement(
+    worker_id: UUID,
+    body: EngagementCreate,
+    actor: EngagementCreator,
+    session: SessionDep,
+    level: Annotated[Visibility, Depends(require_visibility(Visibility.SUMMARY))],
+) -> EngagementRead:
+    engagement = await EngagementService(session).create(
+        actor, worker_id, body, path=EngagementPath.FIRST_TIME
+    )
+    return engagement_read(engagement, None)

@@ -1,10 +1,11 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Self
+from typing import ClassVar, Self
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.outbox.events import DomainEvent
 from app.modules.engagements.enums import EngagementPath, EngagementStatus, ProjectStatus, WorkMode
 from app.modules.engagements.models import Engagement, Feedback
 
@@ -86,6 +87,34 @@ class EngagementRead(BaseModel):
     completed_at: datetime | None
     stuck: bool
     feedback: FeedbackRead | None
+
+
+class EngagementCreate(BaseModel):
+    """Terms a PM confirms (FR-4.3/4.4). Workers are addressed in the path."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: UUID
+    start_date: date
+    end_date: date | None = None
+    rate: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    work_mode: WorkMode
+    location: str | None = Field(default=None, max_length=120)
+    contract_terms: ContractTerms
+
+    @model_validator(mode="after")
+    def _dates_ordered(self) -> Self:
+        if self.end_date is not None and self.end_date < self.start_date:
+            raise ValueError("end_date must not be before start_date")
+        return self
+
+
+class EngagementCreated(DomainEvent):
+    event_type: ClassVar[str] = "engagements.engagement_created"
+    worker_id: UUID
+    project_id: UUID
+    path: EngagementPath
 
 
 def engagement_read(engagement: Engagement, feedback: Feedback | None) -> EngagementRead:

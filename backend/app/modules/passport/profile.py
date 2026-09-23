@@ -11,6 +11,7 @@ from app.modules.identity.service import Visibility, account_contact
 from app.modules.passport.dependencies import WorkerActor
 from app.modules.passport.enums import AvailabilityStatus, OnboardingState
 from app.modules.passport.models import Worker
+from app.modules.passport.queries import profile_gaps
 from app.modules.passport.repository import SkillClaimRepository, WorkerRepository
 from app.modules.passport.schemas import (
     WorkerDetail,
@@ -94,13 +95,7 @@ class ProfileService:
         """Gates first-time engagements (FR-5.1). Idempotent."""
         worker = await self._worker(who.worker_id)
         if worker.onboarding_state is not OnboardingState.PROFILE_COMPLETE:
-            missing = []
-            if not worker.base_location:
-                missing.append("base_location")
-            if not worker.languages:
-                missing.append("languages")
-            if not await self.claims.list_for_worker(worker.id):
-                missing.append("skills")
+            missing = await profile_gaps(self.session, worker)
             if missing:
                 raise Conflict(
                     f"Complete your profile first: {', '.join(missing)}",

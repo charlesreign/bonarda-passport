@@ -4,6 +4,7 @@ from uuid import UUID
 from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.engagements.enums import OPEN_STATUSES, EngagementStatus
 from app.modules.engagements.models import Engagement, Feedback, Project, ProjectStaff
 
 
@@ -112,5 +113,26 @@ class EngagementRepository:
                         Engagement.project_id.in_(project_ids),
                     )
                 )
+            )
+        )
+
+    async def has_history(self, worker_id: UUID) -> bool:
+        return bool(
+            await self.session.scalar(
+                select(
+                    exists().where(
+                        Engagement.worker_id == worker_id,
+                        Engagement.status != EngagementStatus.CANCELLED,
+                    )
+                )
+            )
+        )
+
+    async def open_for(self, worker_id: UUID, project_id: UUID) -> Engagement | None:
+        return await self.session.scalar(
+            select(Engagement).where(
+                Engagement.worker_id == worker_id,
+                Engagement.project_id == project_id,
+                Engagement.status.in_(OPEN_STATUSES),
             )
         )

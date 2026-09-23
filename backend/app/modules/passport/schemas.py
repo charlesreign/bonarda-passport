@@ -174,3 +174,8 @@ class InvitationRead(BaseModel):
 class WorkerInvited(DomainEvent):
     event_type: ClassVar[str] = "passport.worker_invited"
     invited_by_id: UUID
+
+
+class EngagementReadiness(BaseModel):
+    onboarding_complete: bool
+    gaps: list[str]
