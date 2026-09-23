@@ -17,6 +17,7 @@ from app.modules.identity.oidc import AuthlibOidcProvider
 from app.modules.identity.router import router as identity_router
 from app.modules.identity.service import VisibilityPolicy
 from app.modules.integrations.service import build_mailer
+from app.modules.passport.router import router as passport_router
 from app.wiring import visibility_sources
 
 
@@ -55,4 +56,5 @@ def create_app(
     app.add_middleware(CorrelationIdMiddleware)
     app.include_router(health.router)
     app.include_router(identity_router)
+    app.include_router(passport_router)
     return app
