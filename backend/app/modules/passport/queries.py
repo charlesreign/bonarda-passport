@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.outbox.writer import emit_event
-from app.modules.passport.enums import ConsentPurpose, OnboardingState, WorkerStatus
+from app.modules.passport.enums import ConsentPurpose, OnboardingState, StandingTier, WorkerStatus
 from app.modules.passport.models import Skill, Worker
 from app.modules.passport.repository import (
     ConsentRepository,
@@ -94,3 +94,20 @@ async def claimed_skill_ids(session: AsyncSession, worker_id: UUID) -> set[UUID]
         claim.skill_id
         for claim, _ in await SkillClaimRepository(session).list_for_worker(worker_id)
     }
+
+
+async def lock_standing_tier(session: AsyncSession, worker_id: UUID) -> StandingTier | None:
+    """Row-locks the worker so concurrent recalculations of one worker serialize."""
+    return await session.scalar(
+        select(Worker.standing_tier).where(Worker.id == worker_id).with_for_update()
+    )
+
+
+async def current_standing_tier(session: AsyncSession, worker_id: UUID) -> StandingTier | None:
+    return await session.scalar(select(Worker.standing_tier).where(Worker.id == worker_id))
+
+
+async def set_standing_tier(session: AsyncSession, worker_id: UUID, tier: StandingTier) -> None:
+    worker = await WorkerRepository(session).get(worker_id)
+    if worker is not None:
+        worker.standing_tier = tier

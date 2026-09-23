@@ -9,6 +9,7 @@ import structlog
 from app.core.enums import UserRole
 
 _correlation_id: ContextVar[str | None] = ContextVar("correlation_id", default=None)
+_event_id: ContextVar[UUID | None] = ContextVar("event_id", default=None)
 
 
 def get_correlation_id() -> str | None:
@@ -24,6 +25,20 @@ def correlation_scope(correlation_id: str | None) -> Iterator[None]:
             yield
     finally:
         _correlation_id.reset(token)
+
+
+def get_event_id() -> UUID | None:
+    """The outbox event the current handler is processing, if any."""
+    return _event_id.get()
+
+
+@contextmanager
+def event_scope(event_id: UUID) -> Iterator[None]:
+    token = _event_id.set(event_id)
+    try:
+        yield
+    finally:
+        _event_id.reset(token)
 
 
 @dataclass(frozen=True, slots=True)

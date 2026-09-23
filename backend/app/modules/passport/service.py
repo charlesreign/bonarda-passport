@@ -12,11 +12,14 @@ from app.modules.passport.enums import (
 )
 from app.modules.passport.queries import (
     claimed_skill_ids,
+    current_standing_tier,
     engagement_readiness,
     existing_skill_ids,
+    lock_standing_tier,
     mark_worker_active,
     mark_worker_dormant,
     profile_gaps,
+    set_standing_tier,
     worker_name,
     worker_region,
 )
@@ -30,11 +33,14 @@ __all__ = [
     "WorkerStatus",
     "WorkerType",
     "claimed_skill_ids",
+    "current_standing_tier",
     "engagement_readiness",
     "existing_skill_ids",
+    "lock_standing_tier",
     "mark_worker_active",
     "mark_worker_dormant",
     "profile_gaps",
+    "set_standing_tier",
     "worker_name",
     "worker_region",
 ]
