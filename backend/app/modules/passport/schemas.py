@@ -62,6 +62,11 @@ class WorkerUpdated(DomainEvent):
     fields: list[str]
 
 
+class WorkerRegion(BaseModel):
+    data_region: str
+    cross_region_ok: bool
+
+
 LanguageCode = Annotated[str, StringConstraints(pattern=r"^[a-z]{2,3}(-[A-Z]{2})?$")]
 
 

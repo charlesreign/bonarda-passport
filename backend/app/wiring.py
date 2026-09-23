@@ -9,6 +9,7 @@ from app.core.config import Settings
 from app.core.mail import Mailer
 from app.core.outbox.registry import HandlerRegistry
 from app.modules.engagements import handlers as engagements_handlers
+from app.modules.engagements.service import project_relationship
 from app.modules.identity import handlers as identity_handlers
 from app.modules.identity.service import VisibilitySource
 
@@ -30,4 +31,4 @@ def build_registry(deps: HandlerDeps) -> HandlerRegistry:
 
 
 def visibility_sources() -> list[VisibilitySource]:
-    return []
+    return [project_relationship]

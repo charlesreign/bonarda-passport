@@ -1,6 +1,7 @@
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -14,11 +15,12 @@ from app.core.outbox.models import OutboxEvent
 from app.core.outbox.processing import process_event
 from app.core.outbox.registry import HandlerRegistry
 from app.core.time import utcnow
-from app.modules.engagements.models import Project, ProjectStaff
+from app.modules.engagements.enums import EngagementPath, EngagementStatus, WorkMode
+from app.modules.engagements.models import Engagement, Project, ProjectStaff
 from app.modules.identity.models import UserAccount
 from app.modules.identity.tokens import issue_access_token
 from app.modules.passport.enums import OnboardingState, WorkerStatus, WorkerType
-from app.modules.passport.models import Worker
+from app.modules.passport.models import Skill, SkillClaim, Worker
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
@@ -126,6 +128,62 @@ async def make_project(
         )
     await session.commit()
     return project
+
+
+async def make_ready_worker(
+    session: AsyncSession,
+    *,
+    email: str | None = None,
+    data_region: str = "GH",
+    full_name: str = "Kofi Mensah",
+) -> tuple[Worker, UserAccount]:
+    """A worker who can be engaged: onboarding complete, location, a language
+    and one skill claim (data-analysis)."""
+    worker, account = await make_worker(
+        session, email=email, data_region=data_region, full_name=full_name
+    )
+    worker.base_location = "Accra"
+    worker.languages = ["en"]
+    skill = await session.scalar(select(Skill).where(Skill.slug == "data-analysis"))
+    if skill is None:
+        skill = Skill(slug="data-analysis", name_i18n={"en": "Data analysis"})
+        session.add(skill)
+        await session.flush()
+    session.add(SkillClaim(worker_id=worker.id, skill_id=skill.id))
+    await session.commit()
+    return worker, account
+
+
+async def make_engagement(
+    session: AsyncSession,
+    *,
+    worker_id: UUID,
+    project_id: UUID,
+    status: EngagementStatus = EngagementStatus.COMPLETED,
+    path: EngagementPath = EngagementPath.FIRST_TIME,
+    start_date: date = date(2026, 1, 5),
+    end_date: date | None = None,
+    rate: Decimal = Decimal("450.00"),
+    currency: str = "GHS",
+    work_mode: WorkMode = WorkMode.REMOTE,
+    scope: str = "Build the data pipeline",
+) -> Engagement:
+    engagement = Engagement(
+        worker_id=worker_id,
+        project_id=project_id,
+        path=path,
+        status=status,
+        start_date=start_date,
+        end_date=end_date,
+        rate=rate,
+        currency=currency,
+        work_mode=work_mode,
+        contract_terms={"scope": scope, "access_notes": None},
+        confirmed_at=utcnow(),
+    )
+    session.add(engagement)
+    await session.commit()
+    return engagement
 
 
 async def drain_outbox(

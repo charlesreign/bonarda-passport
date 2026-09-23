@@ -10,7 +10,7 @@ from app.modules.passport.enums import (
     WorkerStatus,
     WorkerType,
 )
-from app.modules.passport.queries import existing_skill_ids
+from app.modules.passport.queries import existing_skill_ids, worker_region
 
 __all__ = [
     "AvailabilityStatus",
@@ -21,4 +21,5 @@ __all__ = [
     "WorkerStatus",
     "WorkerType",
     "existing_skill_ids",
+    "worker_region",
 ]

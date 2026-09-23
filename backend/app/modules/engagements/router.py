@@ -7,8 +7,21 @@ from app.core.context import Actor
 from app.core.db.session import SessionDep
 from app.core.deps import SettingsDep
 from app.modules.engagements.projects import ProjectService
-from app.modules.engagements.schemas import ProjectCreate, ProjectRead, StaffAssignment
-from app.modules.identity.service import CurrentActor, Permission, require_permission
+from app.modules.engagements.repository import EngagementRepository
+from app.modules.engagements.schemas import (
+    EngagementRead,
+    ProjectCreate,
+    ProjectRead,
+    StaffAssignment,
+    engagement_read,
+)
+from app.modules.identity.service import (
+    CurrentActor,
+    Permission,
+    Visibility,
+    require_permission,
+    require_visibility,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["engagements"])
 
@@ -45,3 +58,15 @@ async def set_project_staff(
     settings: SettingsDep,
 ) -> ProjectRead:
     return await ProjectService(session, settings).set_staff(actor, project_id, body)
+
+
+@router.get("/workers/{worker_id}/engagements")
+async def list_worker_engagements(
+    worker_id: UUID,
+    session: SessionDep,
+    level: Annotated[Visibility, Depends(require_visibility(Visibility.DETAIL))],
+) -> list[EngagementRead]:
+    repo = EngagementRepository(session)
+    engagements = await repo.list_for_worker(worker_id)
+    feedback = await repo.feedback_for([e.id for e in engagements])
+    return [engagement_read(e, feedback.get(e.id)) for e in engagements]

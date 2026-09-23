@@ -1,10 +1,12 @@
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Self
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.modules.engagements.enums import ProjectStatus
+from app.modules.engagements.enums import EngagementPath, EngagementStatus, ProjectStatus, WorkMode
+from app.modules.engagements.models import Engagement, Feedback
 
 
 class ProjectCreate(BaseModel):
@@ -44,3 +46,68 @@ class StaffAssignment(BaseModel):
     @classmethod
     def _dedupe(cls, value: list[UUID]) -> list[UUID]:
         return list(dict.fromkeys(value))
+
+
+class ContractTerms(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: str = Field(min_length=1, max_length=2000)
+    access_notes: str | None = Field(default=None, max_length=2000)
+
+
+class FeedbackRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    structured_answers: dict[str, bool]
+    free_text: str | None
+    skill_ids_demonstrated: list[UUID]
+    reviewer_id: UUID | None
+    created_at: datetime
+
+
+class EngagementRead(BaseModel):
+    id: UUID
+    worker_id: UUID
+    project_id: UUID
+    path: EngagementPath
+    status: EngagementStatus
+    start_date: date
+    end_date: date | None
+    rate: Decimal
+    currency: str
+    work_mode: WorkMode
+    location: str | None
+    contract_terms: ContractTerms
+    prefilled_from_engagement_id: UUID | None
+    confirmed_at: datetime
+    contract_sent_at: datetime | None
+    signed_at: datetime | None
+    billable_start_at: datetime | None
+    completed_at: datetime | None
+    stuck: bool
+    feedback: FeedbackRead | None
+
+
+def engagement_read(engagement: Engagement, feedback: Feedback | None) -> EngagementRead:
+    return EngagementRead(
+        id=engagement.id,
+        worker_id=engagement.worker_id,
+        project_id=engagement.project_id,
+        path=engagement.path,
+        status=engagement.status,
+        start_date=engagement.start_date,
+        end_date=engagement.end_date,
+        rate=engagement.rate,
+        currency=engagement.currency,
+        work_mode=engagement.work_mode,
+        location=engagement.location,
+        contract_terms=ContractTerms.model_validate(engagement.contract_terms),
+        prefilled_from_engagement_id=engagement.prefilled_from_engagement_id,
+        confirmed_at=engagement.confirmed_at,
+        contract_sent_at=engagement.contract_sent_at,
+        signed_at=engagement.signed_at,
+        billable_start_at=engagement.billable_start_at,
+        completed_at=engagement.completed_at,
+        stuck=engagement.stuck_flagged_at is not None,
+        feedback=FeedbackRead.model_validate(feedback) if feedback is not None else None,
+    )

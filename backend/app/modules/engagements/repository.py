@@ -1,9 +1,10 @@
+from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.engagements.models import Project, ProjectStaff
+from app.modules.engagements.models import Engagement, Feedback, Project, ProjectStaff
 
 
 class ProjectRepository:
@@ -62,3 +63,54 @@ class ProjectRepository:
             ProjectStaff.user_account_id == user_id, ProjectStaff.active_to.is_(None)
         )
         return list((await self.session.scalars(stmt)).all())
+
+
+class EngagementRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get(self, engagement_id: UUID) -> Engagement | None:
+        return await self.session.get(Engagement, engagement_id)
+
+    async def get_for_update(self, engagement_id: UUID) -> Engagement | None:
+        return await self.session.scalar(
+            select(Engagement).where(Engagement.id == engagement_id).with_for_update()
+        )
+
+    def add(self, engagement: Engagement) -> Engagement:
+        self.session.add(engagement)
+        return engagement
+
+    def add_feedback(self, feedback: Feedback) -> Feedback:
+        self.session.add(feedback)
+        return feedback
+
+    async def list_for_worker(self, worker_id: UUID) -> list[Engagement]:
+        stmt = (
+            select(Engagement)
+            .where(Engagement.worker_id == worker_id)
+            .order_by(Engagement.start_date.desc(), Engagement.created_at.desc())
+        )
+        return list((await self.session.scalars(stmt)).all())
+
+    async def feedback_for(self, engagement_ids: Sequence[UUID]) -> dict[UUID, Feedback]:
+        if not engagement_ids:
+            return {}
+        rows = await self.session.scalars(
+            select(Feedback).where(Feedback.engagement_id.in_(engagement_ids))
+        )
+        return {f.engagement_id: f for f in rows.all()}
+
+    async def worker_engaged_on(self, worker_id: UUID, project_ids: Sequence[UUID]) -> bool:
+        if not project_ids:
+            return False
+        return bool(
+            await self.session.scalar(
+                select(
+                    exists().where(
+                        Engagement.worker_id == worker_id,
+                        Engagement.project_id.in_(project_ids),
+                    )
+                )
+            )
+        )
