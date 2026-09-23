@@ -6,8 +6,10 @@ from uuid import UUID
 import structlog
 from arq.worker import Retry
 
+from app.core.config import get_settings
 from app.core.outbox.processing import process_event, purge_dispatched_events
 from app.modules.engagements.contracts import activate_due
+from app.modules.engagements.stuck import flag_stuck
 from app.modules.identity.grants import GrantService
 
 MAX_HANDLER_TRIES = 5
@@ -44,3 +46,8 @@ async def expire_access_grants(ctx: dict[str, Any]) -> int:
 async def activate_due_engagements(ctx: dict[str, Any]) -> int:
     async with ctx["sessionmaker"]() as session, session.begin():
         return await activate_due(session)
+
+
+async def flag_stuck_engagements(ctx: dict[str, Any]) -> int:
+    async with ctx["sessionmaker"]() as session, session.begin():
+        return await flag_stuck(session, get_settings())

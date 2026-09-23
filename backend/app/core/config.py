@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     payroll_provider: Literal["fake"] = "fake"
     esign_webhook_secret: SecretStr
 
+    # Stuck-contract detector (spec §7.7).
+    stuck_pending_minutes: int = 30
+    stuck_awaiting_hours: int = 72
+
     @model_validator(mode="after")
     def _require_production_hardening(self) -> Self:
         """Outside dev/test, refuse to start with a weak or placeholder secret,

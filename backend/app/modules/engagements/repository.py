@@ -1,8 +1,8 @@
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import exists, func, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.engagements.enums import OPEN_STATUSES, EngagementStatus
@@ -177,3 +177,25 @@ class EngagementRepository:
             )
         )
         return int(count or 0)
+
+    async def stuck_candidates(
+        self, *, pending_before: datetime, awaiting_before: datetime
+    ) -> list[Engagement]:
+        stmt = (
+            select(Engagement)
+            .where(
+                Engagement.stuck_flagged_at.is_(None),
+                or_(
+                    and_(
+                        Engagement.status == EngagementStatus.PENDING_SIGNATURE,
+                        Engagement.confirmed_at < pending_before,
+                    ),
+                    and_(
+                        Engagement.status == EngagementStatus.AWAITING_SIGNATURE,
+                        Engagement.contract_sent_at < awaiting_before,
+                    ),
+                ),
+            )
+            .with_for_update(skip_locked=True)
+        )
+        return list((await self.session.scalars(stmt)).all())

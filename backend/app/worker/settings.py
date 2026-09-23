@@ -19,6 +19,7 @@ from app.worker.jobs import (
     MAX_HANDLER_TRIES,
     activate_due_engagements,
     expire_access_grants,
+    flag_stuck_engagements,
     purge_outbox,
     run_event_handler,
 )
@@ -91,6 +92,7 @@ class WorkerSettings:
         cron(purge_outbox, hour={2}, minute={30}),
         cron(expire_access_grants, minute=set(range(0, 60, 5))),
         cron(activate_due_engagements, minute={0}),
+        cron(flag_stuck_engagements, minute=set(range(0, 60, 15))),
     ]
     on_startup = startup
     on_shutdown = shutdown
