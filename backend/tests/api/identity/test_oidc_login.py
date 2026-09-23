@@ -1,3 +1,4 @@
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
 from urllib.parse import parse_qs, urlparse
@@ -12,11 +13,12 @@ from app.core.audit.models import AuditLog
 from app.core.config import Settings
 from app.core.enums import AccountStatus, AuthProvider, UserRole
 from app.core.time import utcnow
+from app.modules.engagements.models import ProjectStaff
 from app.modules.identity.models import RefreshSession, UserAccount
 from app.modules.identity.oidc import IdTokenClaims
 from app.modules.identity.router import OIDC_STATE_COOKIE, REFRESH_COOKIE
 from app.modules.identity.sessions import SessionService
-from tests.support import bearer, make_user
+from tests.support import bearer, make_project, make_user
 
 
 @dataclass
@@ -167,6 +169,42 @@ async def test_changed_group_updates_role_and_is_audited(
         await session.scalars(select(AuditLog).where(AuditLog.action == "user.role_changed"))
     ).one()
     assert (change.before, change.after) == ({"role": "pm"}, {"role": "finance"})
+
+
+async def test_role_change_at_login_ends_the_pms_staffing(
+    client: AsyncClient,
+    session: AsyncSession,
+    idp: FakeOidcProvider,
+    drain: Callable[[], Awaitable[None]],
+) -> None:
+    ama = await make_user(
+        session, role=UserRole.PM, email="ama@bonarda.works", oidc_subject="kc-ama"
+    )
+    project = await make_project(session, staff=[ama])
+    idp.claims = IdTokenClaims(
+        subject="kc-ama",
+        email="ama@bonarda.works",
+        amr=["otp"],
+        acr=None,
+        groups=["bonarda-finance"],
+    )
+    state = await _login(client)
+
+    await client.get("/api/v1/auth/oidc/callback", params={"code": "c", "state": state})
+    await drain()
+
+    staff = (
+        await session.scalars(
+            select(ProjectStaff).where(
+                ProjectStaff.project_id == project.id, ProjectStaff.active_to.is_(None)
+            )
+        )
+    ).all()
+    assert staff == []
+    removed = (
+        await session.scalars(select(AuditLog).where(AuditLog.action == "project.staff_removed"))
+    ).one()
+    assert removed.reason == "role_changed"
 
 
 async def test_deactivated_account_cannot_sign_in(

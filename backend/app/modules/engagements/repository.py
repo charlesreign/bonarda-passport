@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.engagements.enums import OPEN_STATUSES, EngagementStatus
 from app.modules.engagements.models import Engagement, Feedback, Project, ProjectStaff
+from app.modules.identity.service import active_pm_ids
 
 
 class ProjectRepository:
@@ -29,7 +30,15 @@ class ProjectRepository:
             (await self.session.scalars(select(Project).order_by(Project.created_at))).all()
         )
 
+    async def _is_active_pm(self, user_id: UUID) -> bool:
+        """Staffing counts only for an active PM account. The AccessRevoked
+        handler closes the staff rows of a revoked or re-roled account; this
+        also covers the window before it runs (spec §7.6)."""
+        return user_id in await active_pm_ids(self.session, [user_id])
+
     async def list_staffed_by(self, user_id: UUID) -> list[Project]:
+        if not await self._is_active_pm(user_id):
+            return []
         stmt = (
             select(Project)
             .join(ProjectStaff, ProjectStaff.project_id == Project.id)
@@ -39,17 +48,16 @@ class ProjectRepository:
         return list((await self.session.scalars(stmt)).all())
 
     async def is_staffed(self, project_id: UUID, user_id: UUID) -> bool:
-        return bool(
-            await self.session.scalar(
-                select(
-                    exists().where(
-                        ProjectStaff.project_id == project_id,
-                        ProjectStaff.user_account_id == user_id,
-                        ProjectStaff.active_to.is_(None),
-                    )
+        staffed = await self.session.scalar(
+            select(
+                exists().where(
+                    ProjectStaff.project_id == project_id,
+                    ProjectStaff.user_account_id == user_id,
+                    ProjectStaff.active_to.is_(None),
                 )
             )
         )
+        return bool(staffed) and await self._is_active_pm(user_id)
 
     async def active_staff_rows(self, project_id: UUID) -> list[ProjectStaff]:
         stmt = select(ProjectStaff).where(

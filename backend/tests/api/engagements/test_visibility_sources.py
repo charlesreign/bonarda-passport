@@ -6,7 +6,7 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.core.enums import UserRole
+from app.core.enums import AccountStatus, UserRole
 from app.core.time import utcnow
 from app.modules.engagements.models import ProjectStaff
 from app.modules.identity.models import UserAccount
@@ -96,4 +96,27 @@ async def test_unstaffed_pm_sees_nothing(
     pm = await make_user(session, role=UserRole.PM)
     worker, _ = await make_worker(session, data_region="GH")
 
+    assert await _view(client, settings, pm, worker.id) is None
+
+
+async def test_revoked_pm_loses_the_project_before_staffing_is_ended(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    """Defence in depth (spec §7.6): until the AccessRevoked handler closes the
+    staff row, a PM whose account is no longer an active PM sees nothing."""
+    pm = await make_user(session, role=UserRole.PM)
+    project = await make_project(session, staff=[pm], data_region="GH")
+    worker, _ = await make_worker(session, data_region="GH")
+    await make_engagement(session, worker_id=worker.id, project_id=project.id)
+    assert await _view(client, settings, pm, worker.id) == "detail"
+    await session.execute(
+        update(UserAccount).where(UserAccount.id == pm.id).values(status=AccountStatus.REVOKED)
+    )
+    await session.commit()
+
+    read = await client.get(f"/api/v1/projects/{project.id}", headers=bearer(settings, pm))
+    listed = await client.get("/api/v1/projects", headers=bearer(settings, pm))
+
+    assert (read.status_code, read.json()["code"]) == (404, "project_not_found")
+    assert listed.json() == []
     assert await _view(client, settings, pm, worker.id) is None

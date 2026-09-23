@@ -12,6 +12,7 @@ from app.core.audit.writer import write_audit
 from app.core.config import Settings
 from app.core.enums import AccountStatus, AuthProvider, UserRole
 from app.core.errors import BadRequest, Conflict, Forbidden
+from app.core.outbox.writer import emit_event
 from app.core.time import utcnow
 from app.modules.identity.models import UserAccount
 from app.modules.identity.oidc import IdTokenClaims, OidcProvider
@@ -21,6 +22,7 @@ from app.modules.identity.repository import (
     normalize_email,
 )
 from app.modules.identity.revocation import mark_revoked
+from app.modules.identity.schemas import AccessRevoked
 
 STATE_PREFIX = "oidc:state:"
 STATE_TTL_SECONDS = 600
@@ -123,6 +125,10 @@ class OidcLoginService:
                 user.id, utcnow(), reason="admin"
             )
             await self._mark_revoked_quietly(user.id)
+            # Same as a SCIM role change: staffing ends (spec §7.6).
+            await emit_event(
+                self.session, AccessRevoked(aggregate_id=user.id, reason="role_changed")
+            )
         return user
 
     async def _mark_revoked_quietly(self, user_id: UUID) -> None:
