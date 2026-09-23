@@ -1,6 +1,6 @@
 from collections.abc import Awaitable, Callable, Sequence
 from enum import IntEnum
-from typing import Annotated
+from typing import Annotated, get_args, get_origin
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Request
@@ -86,14 +86,36 @@ def _has_guard(dependant: Dependant) -> bool:
     )
 
 
+def _field_names_in(annotation: object, seen: set[type]) -> set[str]:
+    """Recursively collect field names reachable from a type annotation:
+    through Annotated[...], Optional/Union (typing.Union and X | Y), and
+    generic containers (list, set, tuple, dict, Sequence, ...), into any
+    BaseModel found along the way. `seen` guards self-referential models."""
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        args = get_args(annotation)
+        return _field_names_in(args[0], seen) if args else set()
+    if origin is not None:
+        names: set[str] = set()
+        for arg in get_args(annotation):
+            names |= _field_names_in(arg, seen)
+        return names
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        if annotation in seen:
+            return set()
+        seen = seen | {annotation}
+        names = set(annotation.model_fields)
+        for field in annotation.model_fields.values():
+            names |= _field_names_in(field.annotation, seen)
+        return names
+    return set()
+
+
 def _body_field_names(route: APIRoute) -> set[str]:
     names: set[str] = set()
     for param in get_flat_dependant(route.dependant).body_params:
-        annotation = param.field_info.annotation
-        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
-            names |= set(annotation.model_fields)
-        else:
-            names.add(param.name)
+        names.add(param.name)
+        names |= _field_names_in(param.field_info.annotation, set())
     return names
 
 

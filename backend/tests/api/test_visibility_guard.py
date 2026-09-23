@@ -52,3 +52,46 @@ def test_worker_id_in_a_request_body_is_always_reported() -> None:
         return None
 
     assert unguarded_worker_routes(app) == ["/reactivations"]
+
+
+class _Wrapper(BaseModel):
+    inner: _Reactivation
+
+
+class _Batch(BaseModel):
+    items: list[_Reactivation]
+
+
+class _Node(BaseModel):
+    name: str
+    children: list["_Node"] = []
+
+
+def test_worker_id_is_found_through_optional_nested_list_and_self_referential_bodies() -> None:
+    app = FastAPI()
+
+    @app.post("/optional-reactivation")
+    async def optional_body(body: _Reactivation | None = None) -> None:
+        return None
+
+    @app.post("/wrapped")
+    async def nested_body(body: _Wrapper) -> None:
+        return None
+
+    @app.post("/batch")
+    async def list_body(body: _Batch) -> None:
+        return None
+
+    @app.post("/nodes")
+    async def self_referential_without_worker_id(body: _Node) -> None:
+        return None
+
+    @app.post("/grants")
+    async def differently_named(body: _Grant) -> None:
+        return None
+
+    assert sorted(unguarded_worker_routes(app)) == [
+        "/batch",
+        "/optional-reactivation",
+        "/wrapped",
+    ]
