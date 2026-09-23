@@ -1,6 +1,6 @@
-# Bonarda Works — Project Root Structure & Setup Guide
+# Bonarda Works — Project Root Structure & Setup Guide (v2)
 
-Companion to `bonarda-requirements.md` and `bonarda-system-design.md`. This document defines the repository layout for the modular-monolith FastAPI backend and the React frontend, plus the steps to get both running locally.
+Companion to `bonarda-requirements.md`, `docs/superpowers/specs/2026-09-22-bonarda-system-design-v2.md` and `bonarda-data-models.md`. Defines the repository layout for the modular-monolith FastAPI backend and the React frontend, plus local setup.
 
 ---
 
@@ -10,300 +10,245 @@ Companion to `bonarda-requirements.md` and `bonarda-system-design.md`. This docu
 bonarda-passport/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py                    # FastAPI app factory, router registration
-│   │   ├── core/
-│   │   │   ├── config.py              # Pydantic Settings — env-driven config
-│   │   │   ├── security.py            # JWT issuance/validation, magic-link, SSO token checks
-│   │   │   └── logging.py             # structlog configuration
-│   │   ├── db/
-│   │   │   ├── session.py             # async engine + session factory
-│   │   │   └── base.py                # SQLAlchemy declarative base
-│   │   ├── models/                    # SQLAlchemy ORM models (one file per entity)
-│   │   │   ├── worker.py
-│   │   │   ├── engagement.py
-│   │   │   ├── skill_claim.py
-│   │   │   ├── standing_change.py
-│   │   │   ├── dispute.py
-│   │   │   ├── user_account.py
-│   │   │   └── access_grant.py
-│   │   ├── schemas/                   # Pydantic request/response models (separate from ORM)
-│   │   │   ├── worker.py
-│   │   │   ├── engagement.py
-│   │   │   ├── feedback.py
-│   │   │   └── auth.py
-│   │   ├── repositories/              # data-access layer — the missing piece
-│   │   │   ├── base.py                # generic CRUD repository, typed on the model
-│   │   │   ├── worker_repository.py
-│   │   │   ├── engagement_repository.py
-│   │   │   ├── skill_claim_repository.py
-│   │   │   ├── dispute_repository.py
-│   │   │   ├── standing_change_repository.py
-│   │   │   └── access_grant_repository.py
-│   │   ├── routers/                   # one module per FR-6.x domain
-│   │   │   ├── auth.py
-│   │   │   ├── workers.py
-│   │   │   ├── roster.py              # includes /roster/first-shot (FR-4.6)
-│   │   │   ├── engagements.py
-│   │   │   ├── feedback.py
-│   │   │   ├── disputes.py
-│   │   │   ├── governance.py
-│   │   │   └── access.py
-│   │   ├── services/                  # business logic, kept out of routers
-│   │   │   │                          # — calls repositories, never the ORM/session directly
-│   │   │   ├── tiering.py             # FR-3.1–3.3 rules engine
-│   │   │   ├── matching.py            # FR-6.1 recommendation logic
-│   │   │   └── reactivation.py
-│   │   ├── integrations/              # provider-agnostic adapters (ambiguity #5)
-│   │   │   ├── esign/
-│   │   │   │   ├── base.py            # adapter interface
-│   │   │   │   └── docusign_adapter.py
-│   │   │   ├── payroll/
-│   │   │   └── sso/
-│   │   ├── workers/                   # Arq job definitions
-│   │   │   ├── settings.py            # Arq WorkerSettings, cron schedule
-│   │   │   └── jobs.py                # send_contract, notify_worker, recalculate_tier, etc.
-│   │   └── tests/
-│   │       ├── conftest.py
-│   │       ├── test_routers/
-│   │       ├── test_services/         # mock repositories — no real DB needed
-│   │       └── test_repositories/     # real test-DB integration tests
+│   │   ├── main.py                        # app factory; mounts each module's router under /api/v1
+│   │   ├── wiring.py                      # handler registry + visibility sources (composition root)
+│   │   ├── core/                          # shared kernel — any module may import from here
+│   │   │   ├── config.py                  # Pydantic Settings
+│   │   │   ├── enums.py
+│   │   │   ├── errors.py                  # RFC 9457 problem+json
+│   │   │   ├── logging.py                 # structlog, correlation IDs
+│   │   │   ├── context.py                 # request actor + correlation ID
+│   │   │   ├── i18n.py                    # stable error/message codes
+│   │   │   ├── db/
+│   │   │   │   ├── base.py                # DeclarativeBase + mixins
+│   │   │   │   └── session.py             # async engine, request-scoped session (commit on success)
+│   │   │   ├── audit/
+│   │   │   │   ├── models.py              # AuditLog
+│   │   │   │   └── writer.py              # AuditWriter.record(session, ...)
+│   │   │   └── outbox/
+│   │   │       ├── models.py              # OutboxEvent, ProcessedEvent
+│   │   │       ├── writer.py              # OutboxWriter.emit(session, event)
+│   │   │       ├── events.py              # typed event payloads (Pydantic)
+│   │   │       ├── registry.py            # event_type -> [handlers]
+│   │   │       └── relay.py               # LISTEN/NOTIFY + SKIP LOCKED claim loop
+│   │   ├── modules/
+│   │   │   ├── identity/
+│   │   │   │   ├── router.py              # /auth/*, /me, /scim/v2/*, /access-grants
+│   │   │   │   ├── service.py
+│   │   │   │   ├── repository.py
+│   │   │   │   ├── models.py              # UserAccount, RefreshSession, AccessGrant
+│   │   │   │   ├── schemas.py
+│   │   │   │   ├── permissions.py         # fixed role × permission matrix (FR-9.3)
+│   │   │   │   ├── visibility.py          # VisibilityPolicy dependency (FR-9.4)
+│   │   │   │   ├── tokens.py              # PyJWT access tokens, refresh rotation, magic links
+│   │   │   │   └── handlers.py
+│   │   │   ├── passport/                  # router, service, repository, models, schemas, handlers
+│   │   │   ├── engagements/               # + structured feedback schema
+│   │   │   ├── standing/                  # + rules.py (pure tier evaluation)
+│   │   │   ├── roster/                    # + scoring.py, first_shot.py (pure functions)
+│   │   │   ├── governance/                # + policy_schemas.py (per-kind rule validation)
+│   │   │   └── integrations/
+│   │   │       ├── esign/
+│   │   │       │   ├── base.py            # EsignAdapter protocol
+│   │   │       │   └── fake.py            # dev/demo: auto-signs after a delay
+│   │   │       ├── payroll/               # base.py, fake.py
+│   │   │       ├── email/                 # base.py, smtp.py (Mailpit in dev)
+│   │   │       └── webhooks.py            # HMAC verification
+│   │   └── worker/
+│   │       ├── settings.py                # Arq WorkerSettings, cron schedule, relay startup
+│   │       └── jobs.py                    # dispatches to module handlers; cron jobs
+│   ├── tests/
+│   │   ├── conftest.py
+│   │   ├── unit/                          # pure functions: rules, scoring, first-shot, policies
+│   │   ├── integration/                   # real Postgres (testcontainers): repositories, outbox, triggers
+│   │   └── api/                           # route tests incl. the role × route visibility matrix
 │   ├── alembic/
 │   │   ├── versions/
 │   │   └── env.py
+│   ├── alembic.ini
+│   ├── pyproject.toml                     # ruff (incl. ASYNC rules), mypy, pytest, import-linter contracts
 │   ├── requirements.txt
 │   ├── requirements-dev.txt
-│   ├── alembic.ini
-│   ├── pytest.ini
-│   ├── pyproject.toml                 # ruff/mypy config
 │   ├── Dockerfile
 │   └── .env.example
 │
 ├── frontend/
 │   ├── src/
+│   │   ├── app/
+│   │   │   ├── App.tsx                    # route table with React.lazy bundles
+│   │   │   └── main.tsx
 │   │   ├── providers/
-│   │   │   ├── AuthProvider.tsx
-│   │   │   └── QueryProvider.tsx
-│   │   ├── hooks/
-│   │   │   ├── useWorkerProfile.ts
-│   │   │   ├── useReactivation.ts
-│   │   │   ├── useRosterSearch.ts
-│   │   │   └── useConcentrationMetrics.ts
-│   │   ├── components/
-│   │   │   ├── pm-console/
-│   │   │   │   ├── RosterList.tsx
+│   │   │   ├── AuthProvider.tsx           # in-memory access token, refresh, role idle timer
+│   │   │   ├── QueryProvider.tsx
+│   │   │   └── I18nProvider.tsx
+│   │   ├── api/
+│   │   │   ├── schema.d.ts                # generated by openapi-typescript (do not edit)
+│   │   │   └── client.ts                  # openapi-fetch instance + auth middleware
+│   │   ├── features/
+│   │   │   ├── passport/                  # /passport bundle (≤150 KB gz)
+│   │   │   │   ├── PassportPage.tsx
+│   │   │   │   ├── StandingExplanation.tsx
+│   │   │   │   ├── EngagementHistory.tsx
+│   │   │   │   ├── DisputeForm.tsx
+│   │   │   │   └── hooks.ts               # usePassport, useStandingExplanation, useDisputes
+│   │   │   ├── console/                   # /console bundle
+│   │   │   │   ├── StaffingPage.tsx       # candidates + first-shot, same layout
+│   │   │   │   ├── CandidateList.tsx      # TanStack Virtual
 │   │   │   │   ├── FirstShotPanel.tsx
-│   │   │   │   └── ReactivationFlow.tsx
-│   │   │   ├── passport/
-│   │   │   │   ├── PassportSpread.tsx
-│   │   │   │   └── EngagementStampGrid.tsx
-│   │   │   └── governance/
-│   │   │       └── ConcentrationDashboard.tsx
-│   │   ├── api/                       # typed fetch client, generated from OpenAPI
-│   │   ├── types/                     # shared TS types
-│   │   ├── pages/
-│   │   ├── App.tsx
-│   │   └── main.tsx
-│   ├── public/
+│   │   │   │   ├── ReactivationFlow.tsx
+│   │   │   │   ├── FeedbackForm.tsx
+│   │   │   │   └── hooks.ts               # useCandidates, useFirstShot, useReactivation
+│   │   │   └── ops/                       # /ops bundle
+│   │   │       ├── DisputeQueue.tsx
+│   │   │       ├── PolicyVersions.tsx
+│   │   │       ├── ConcentrationDashboard.tsx
+│   │   │       ├── AuditLog.tsx
+│   │   │       └── hooks.ts
+│   │   ├── components/                    # shared UI built on Radix primitives
+│   │   └── locales/
+│   │       ├── en/
+│   │       └── fr/
+│   ├── e2e/                               # Playwright + axe
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── vite.config.ts
+│   ├── .size-limit.json                   # per-bundle budgets
 │   ├── Dockerfile
 │   └── .env.example
 │
 ├── infra/
-│   ├── docker-compose.yml             # postgres, redis, api, worker, frontend
-│   └── k8s/                           # deferred past MVA — manifests scaffolded only
+│   ├── docker-compose.yml                 # postgres, redis, api, worker, spa, keycloak, mailpit
+│   ├── keycloak/realm-bonarda.json        # dev/demo IdP realm with MFA-required staff users
+│   └── k8s/                               # deferred past MVA
 │
 ├── docs/
-│   ├── bonarda-requirements.md
-│   ├── bonarda-system-design.md
-│   └── PROJECT_STRUCTURE.md
+│   ├── superpowers/specs/                 # design specs
+│   └── permissions.md                     # generated from identity/permissions.py in CI
 │
-├── .github/
-│   └── workflows/
-│       └── ci.yml                     # lint, type-check, test on PR
-│
-├── .env.example                       # root-level shared vars (compose)
+├── .github/workflows/ci.yml               # lint, type-check, import-linter, tests, OpenAPI drift, size-limit
 ├── .gitignore
 └── README.md
 ```
 
-**Design notes**
+---
 
-- `routers/`, `services/`, `repositories/`, and `integrations/` form a strict one-way dependency chain: **routers → services → repositories → models**. A router never queries the database directly, and a service never imports SQLAlchemy's `select()` or touches an `AsyncSession` directly — it calls a repository method instead. This is what makes `services/` (§6, business rules like FR-3.1–3.3's tiering) unit-testable with an in-memory fake repository, with no real database needed for that test tier.
-- `repositories/` is the data-access layer — one repository per aggregate (`WorkerRepository`, `EngagementRepository`, etc.), each wrapping the actual SQLAlchemy queries for that entity behind a typed, intention-revealing method (`get_active_by_id`, `list_by_worker_ordered_by_date`) rather than services building ad hoc queries inline. `repositories/base.py` provides a generic typed CRUD base (`get`, `list`, `create`, `update`, `delete`) that entity-specific repositories extend with their own query methods:
+## 2. Design notes
 
-  ```python
-  # backend/app/repositories/base.py
-  from typing import Generic, TypeVar
-  from uuid import UUID
-
-  from sqlalchemy import select
-  from sqlalchemy.ext.asyncio import AsyncSession
-
-  from app.db.base import Base
-
-  ModelT = TypeVar("ModelT", bound=Base)
-
-  class BaseRepository(Generic[ModelT]):
-      model: type[ModelT]
-
-      def __init__(self, session: AsyncSession) -> None:
-          self.session = session
-
-      async def get(self, id: UUID) -> ModelT | None:
-          return await self.session.get(self.model, id)
-
-      async def create(self, obj: ModelT) -> ModelT:
-          self.session.add(obj)
-          await self.session.flush()
-          return obj
-  ```
-
-  ```python
-  # backend/app/repositories/worker_repository.py
-  from sqlalchemy import select
-
-  from app.models.enums import WorkerStatus
-  from app.models.worker import Worker
-  from app.repositories.base import BaseRepository
-
-  class WorkerRepository(BaseRepository[Worker]):
-      model = Worker
-
-      async def search_active(self, *, skill: str | None, location: str | None) -> list[Worker]:
-          """Backs GET /roster/search (FR-4.1) — the only place this
-          query is written, so an index change or query rewrite touches
-          one file, not every router that happens to need a worker list."""
-          stmt = select(Worker).where(Worker.status == WorkerStatus.ACTIVE)
-          if skill:
-              stmt = stmt.join(Worker.skill_claims).where(...)
-          if location:
-              stmt = stmt.where(Worker.base_location == location)
-          result = await self.session.execute(stmt)
-          return list(result.scalars().all())
-  ```
-
-  A service then depends on the repository, not the session:
-
-  ```python
-  # backend/app/services/reactivation.py
-  class ReactivationService:
-      def __init__(self, worker_repo: WorkerRepository, engagement_repo: EngagementRepository) -> None:
-          self.worker_repo = worker_repo
-          self.engagement_repo = engagement_repo
-
-      async def reactivate(self, worker_id: UUID, project_id: UUID) -> Engagement:
-          worker = await self.worker_repo.get(worker_id)
-          # ...business rules here, no SQL in sight
-  ```
-
-  Swapping in a `FakeWorkerRepository` (a plain in-memory dict) for `ReactivationService` tests means the tiering and reactivation business rules can be tested without a Postgres instance at all — that speed matters given how often `services/` changes relative to `repositories/`.
-
-- `models/` and `schemas/` are kept as separate directories on purpose (System Design §4) — the API contract in `schemas/` should be able to evolve independently of the database shape in `models/`. `repositories/` returns ORM models, not schemas — the router layer is responsible for converting a repository's `Worker` into a `WorkerRead` schema, keeping that translation in exactly one place.
-- `integrations/` third-party calls are isolated behind an adapter interface — this is what lets the e-signature or SSO provider change without touching business logic (System Design §2, ambiguity #5).
-- `workers/jobs.py` holds every Arq job named in the System Design §6.3 table, each triggered from a service layer call (which itself goes through a repository), never directly from a router.
+- **Modules, not layers.** Each domain module owns its router, service, repository, models, schemas and event handlers. Inside a module the dependency chain is one-way: **router → service → repository → models**. Only repositories build queries or touch `AsyncSession` queries; services hold business rules and are unit-tested with in-memory fake repositories.
+- **Module boundaries are enforced by `import-linter`** (contracts in `backend/pyproject.toml`):
+  - A module may import another module's `service` and `schemas` only.
+  - `modules.*` may import `core`; `core` may not import `modules`.
+  - Cross-module foreign keys are declared by table name (`ForeignKey("workers.id")`); ORM `relationship()` is used only within a module.
+- **Every state change is atomic with its audit row and outbox event.** Services receive the request-scoped session and pass it to `AuditWriter.record()` and `OutboxWriter.emit()`. The session commits once, at the end of the request. Nothing in request code enqueues Arq jobs directly.
+- **Handlers are idempotent.** The relay enqueues one Arq job per `(event_id, handler)`; each handler records itself in `processed_events` in its own transaction.
+- **Pure logic is isolated** in `standing/rules.py`, `roster/scoring.py` and `roster/first_shot.py` — no I/O, fully unit-testable against policy fixtures.
+- **Integrations are adapters** behind protocols in `integrations/*/base.py`. Fakes are the default in dev and the demo; real providers are selected by config.
+- **The frontend is split by audience** (`features/passport`, `features/console`, `features/ops`), each a lazy route bundle. The API client is generated from the backend's OpenAPI schema; CI fails if the committed `schema.d.ts` differs from a fresh generation.
+- **Composition root.** `app/main.py` (API), `app/worker/` (Arq) and `app/wiring.py` (event handler registry and visibility sources) are the only places that know about every module. Modules never import them (import-linter), and `tests/unit/test_module_boundaries.py` enforces that modules use each other only through `service` and `schemas`. Staff OIDC lives in `modules/identity/oidc.py` rather than `integrations/`, because identity is its only user.
 
 ---
 
-## 2. Prerequisites
+## 3. Prerequisites
 
 | Tool | Version | Purpose |
 |---|---|---|
 | Python | 3.12+ | Backend runtime |
-| Node.js | 20+ (LTS) | Frontend tooling |
-| Docker & Docker Compose | Latest | Local Postgres/Redis, containerized dev parity |
-| PostgreSQL | 16 | Primary datastore (via Docker unless installed natively) |
-| Redis | 7 | Cache + Arq queue (via Docker unless installed natively) |
+| Node.js | 20 LTS+ | Frontend tooling |
+| Docker & Docker Compose | Latest | Postgres, Redis, Keycloak, Mailpit |
+| PostgreSQL | 16 (via Docker) | Primary datastore; requires `pg_trgm` |
+| Redis | 7 (via Docker) | Arq queue, magic-link tokens, revocation markers |
 
 ---
 
-## 3. Local setup — fastest path (Docker Compose)
+## 4. Local setup — Docker Compose (fastest)
 
 ```bash
 git clone <repo-url> bonarda-passport
 cd bonarda-passport
 
-cp .env.example .env
 cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env
-# fill in secrets: SSO client id/secret, e-signature API key, DB creds
 
 docker compose -f infra/docker-compose.yml up --build
 ```
 
-This brings up Postgres, Redis, the FastAPI API, the Arq worker, and the React dev server together. API docs are available at `http://localhost:8000/docs` once the container is healthy.
+| Service | URL |
+|---|---|
+| SPA | http://localhost:5173 |
+| API docs (OpenAPI) | http://localhost:8000/docs |
+| Keycloak (staff login, demo users) | http://localhost:8080 |
+| Mailpit (worker magic links) | http://localhost:8025 |
+
+Migrations and seed data (skills taxonomy, policy v1 for each kind, demo projects, workers and PMs) run on API container start in dev.
 
 ---
 
-## 4. Local setup — running services natively (for backend/frontend development without full container rebuilds)
+## 5. Local setup — native backend / frontend
 
-### 4.1 Backend
+### 5.1 Backend
 
 ```bash
 cd backend
 python3.12 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -r requirements.txt -r requirements-dev.txt
 
-cp .env.example .env               # point DATABASE_URL / REDIS_URL at local or Docker services
+docker compose -f ../infra/docker-compose.yml up -d postgres redis keycloak mailpit
+alembic upgrade head
+python -m app.seed                   # dev seed data
 
-alembic upgrade head                # apply migrations
-
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:create_app --factory --reload --port 8000
+arq app.worker.settings.WorkerSettings    # second terminal: relay, handlers, cron
 ```
 
-Run the background worker in a second terminal (same virtualenv):
+Checks (all run in CI):
 
 ```bash
-arq app.workers.settings.WorkerSettings
-```
-
-Run tests:
-
-```bash
-pytest
 ruff check .
 mypy app
+lint-imports                         # import-linter module boundary contracts
+pytest
 ```
 
-### 4.2 Frontend
+### 5.2 Frontend
 
 ```bash
 cd frontend
 npm install
-cp .env.example .env               # set VITE_API_BASE_URL=http://localhost:8000
-
-npm run dev                        # starts Vite dev server, default port 5173
+npm run gen:api                      # regenerate src/api/schema.d.ts from http://localhost:8000/openapi.json
+npm run dev
+npm run size                         # size-limit bundle budgets
 ```
 
 ---
 
-## 5. Environment variables (summary)
+## 6. Environment variables
 
 | Variable | Where | Purpose |
 |---|---|---|
 | `DATABASE_URL` | backend | asyncpg connection string |
-| `REDIS_URL` | backend | cache + Arq queue |
-| `JWT_SECRET` / `JWT_ALGORITHM` | backend | access/refresh token signing |
-| `SSO_CLIENT_ID` / `SSO_CLIENT_SECRET` / `SSO_ISSUER_URL` | backend | corporate OIDC (FR-9.1) |
-| `ESIGN_PROVIDER` / `ESIGN_API_KEY` | backend | selected via adapter interface — provider swappable |
-| `PAYROLL_WEBHOOK_URL` / `PAYROLL_API_KEY` | backend | engagement-activation signal |
-| `VITE_API_BASE_URL` | frontend | API base URL the SPA calls |
+| `DB_POOL_SIZE` | backend | per-process pool (default 10; see spec §8.2 connection budget) |
+| `REDIS_URL` | backend | Arq queue, magic links, revocation markers |
+| `JWT_SIGNING_KEY` / `JWT_ALGORITHM` | backend | access-token signing (PyJWT) |
+| `OIDC_ISSUER_URL` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | backend | staff login (FR-9.1) |
+| `OIDC_REQUIRED_AMR` | backend | MFA methods accepted in the ID token (FR-9.9) |
+| `SCIM_BEARER_TOKEN` | backend | authenticates the IdP's SCIM calls (NFR-3.5) |
+| `ESIGN_PROVIDER` / `ESIGN_API_KEY` / `ESIGN_WEBHOOK_SECRET` | backend | adapter selection (`fake` in dev) and webhook HMAC |
+| `PAYROLL_PROVIDER` / `PAYROLL_API_KEY` | backend | adapter selection (`fake` in dev) |
+| `SMTP_URL` / `MAIL_FROM` | backend | email adapter (Mailpit in dev) |
+| `PUBLIC_APP_URL` | backend | base URL for magic links |
+| `VITE_API_BASE_URL` | frontend | API base URL |
 
-Never commit a filled `.env` — only `.env.example` with placeholder values is checked in.
+Never commit a filled `.env`; only `.env.example` with placeholders is checked in.
 
 ---
 
-## 6. Database migrations
-
-New migration after a model change:
+## 7. Database migrations
 
 ```bash
 cd backend
-alembic revision --autogenerate -m "add dispute status index"
+alembic revision --autogenerate -m "describe change"
 alembic upgrade head
 ```
 
-Every migration is reviewed in PR like any other code change — this is the mechanism behind NFR-3.3's requirement that schema changes remain traceable.
+Migrations are reviewed in PRs and follow expand/contract (add new column → backfill → switch reads → drop old) so deploys need no downtime. Triggers, roles and extensions (`pg_trgm`, append-only triggers) are written by hand in migrations, since autogenerate does not detect them.
