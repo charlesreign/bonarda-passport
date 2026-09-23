@@ -5,16 +5,20 @@ from fastapi import FastAPI
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from app import models_registry as _models_registry  # noqa: F401 (map tables before first flush)
 from app.core import health
 from app.core.config import Settings, get_settings
 from app.core.db.session import create_engine
 from app.core.errors import install_error_handlers
 from app.core.logging import configure_logging
-from app.core.mail import ConsoleMailer, Mailer
+from app.core.mail import Mailer
 from app.core.middleware import CorrelationIdMiddleware
+from app.modules.engagements.router import router as engagements_router
 from app.modules.identity.oidc import AuthlibOidcProvider
 from app.modules.identity.router import router as identity_router
 from app.modules.identity.service import VisibilityPolicy
+from app.modules.integrations.service import build_mailer
+from app.modules.passport.router import router as passport_router
 from app.wiring import visibility_sources
 
 
@@ -34,13 +38,7 @@ def create_app(
 ) -> FastAPI:
     """App factory. Run with `uvicorn app.main:create_app --factory`."""
     settings = settings or get_settings()
-    if mailer is None:
-        if settings.env not in {"dev", "test"}:
-            # ConsoleMailer logs full magic-link URLs — fine for a developer's
-            # own terminal, a credential leak anywhere else. Plan 6 passes a
-            # real mailer here for production wiring.
-            raise RuntimeError("A real mailer must be configured outside dev/test")
-        mailer = ConsoleMailer()
+    mailer = mailer or build_mailer(settings)
     configure_logging(json_logs=settings.env != "dev")
     app = FastAPI(title="Bonarda Works API", version="0.1.0", lifespan=lifespan)
     app.state.settings = settings
@@ -59,4 +57,6 @@ def create_app(
     app.add_middleware(CorrelationIdMiddleware)
     app.include_router(health.router)
     app.include_router(identity_router)
+    app.include_router(passport_router)
+    app.include_router(engagements_router)
     return app

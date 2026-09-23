@@ -42,18 +42,25 @@ bonarda-passport/
 │   │   │   │   ├── visibility.py          # VisibilityPolicy dependency (FR-9.4)
 │   │   │   │   ├── tokens.py              # PyJWT access tokens, refresh rotation, magic links
 │   │   │   │   └── handlers.py
-│   │   │   ├── passport/                  # router, service, repository, models, schemas, handlers
-│   │   │   ├── engagements/               # + structured feedback schema
+│   │   │   ├── passport/                  # workers, skills, claims, consents, invitations (Plan 2A)
+│   │   │   │   ├── enums.py, models.py, repository.py, schemas.py, dependencies.py
+│   │   │   │   ├── skills.py, profile.py, consents.py, invitations.py
+│   │   │   │   ├── router.py
+│   │   │   │   └── service.py
+│   │   │   ├── engagements/               # projects, staffing, engagements, contracts, feedback (Plan 2B)
+│   │   │   │   ├── enums.py, models.py, repository.py, schemas.py
+│   │   │   │   ├── projects.py, visibility.py, engagements.py, contracts.py
+│   │   │   │   ├── payroll.py, feedback.py, stuck.py, handlers.py
+│   │   │   │   ├── router.py
+│   │   │   │   └── service.py
 │   │   │   ├── standing/                  # + rules.py (pure tier evaluation)
 │   │   │   ├── roster/                    # + scoring.py, first_shot.py (pure functions)
 │   │   │   ├── governance/                # + policy_schemas.py (per-kind rule validation)
 │   │   │   └── integrations/
-│   │   │       ├── esign/
-│   │   │       │   ├── base.py            # EsignAdapter protocol
-│   │   │       │   └── fake.py            # dev/demo: auto-signs after a delay
-│   │   │       ├── payroll/               # base.py, fake.py
-│   │   │       ├── email/                 # base.py, smtp.py (Mailpit in dev)
-│   │   │       └── webhooks.py            # HMAC verification
+│   │   │       ├── esign.py               # EsignAdapter protocol + FakeEsignAdapter (never signs by itself)
+│   │   │       ├── payroll.py             # PayrollAdapter protocol + FakePayrollAdapter
+│   │   │       ├── smtp.py                # SmtpMailer; service.py exposes build_mailer
+│   │   │       └── webhooks.py            # HMAC sign/verify for the e-sign webhook
 │   │   └── worker/
 │   │       ├── settings.py                # Arq WorkerSettings, cron schedule, relay startup
 │   │       └── jobs.py                    # dispatches to module handlers; cron jobs

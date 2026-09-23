@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import AwareDatetime, BaseModel, ConfigDict, EmailStr, Field
 
 from app.core.enums import UserRole
+from app.core.i18n import Locale
 from app.core.outbox.events import DomainEvent
 
 
@@ -20,6 +21,16 @@ class MeResponse(BaseModel):
     role: UserRole
     worker_id: UUID | None
     can_view_governance: bool
+    locale: str
+
+
+class MeUpdate(BaseModel):
+    locale: Locale
+
+
+class AccountContact(BaseModel):
+    email: str
+    locale: str
 
 
 class MagicLinkRequest(BaseModel):
@@ -28,6 +39,14 @@ class MagicLinkRequest(BaseModel):
 
 class MagicLinkVerify(BaseModel):
     token: str
+
+
+SignInPurpose = Literal["sign_in", "invitation"]
+
+
+class MagicLinkRequested(DomainEvent):
+    event_type: ClassVar[str] = "identity.magic_link_requested"
+    purpose: SignInPurpose = "sign_in"
 
 
 class GrantCreate(BaseModel):
@@ -73,3 +92,12 @@ class ScimPatch(BaseModel):
 class AccessRevoked(DomainEvent):
     event_type: ClassVar[str] = "identity.access_revoked"
     reason: Literal["deactivated", "role_changed"]
+
+
+class WorkerAccountRef(BaseModel):
+    """Identifies an existing worker's sign-in account, for callers (e.g.
+    passport's re-invite path) that need to act on it without importing
+    identity's models."""
+
+    user_id: UUID
+    worker_id: UUID

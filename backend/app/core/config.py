@@ -1,12 +1,12 @@
 from functools import lru_cache
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.enums import UserRole
 
-_NON_PRODUCTION_ENVS = {"dev", "test"}
+NON_PRODUCTION_ENVS: frozenset[str] = frozenset({"dev", "test"})
 _MIN_SECRET_LENGTH = 32
 _PLACEHOLDER = "change-me"
 
@@ -58,15 +58,36 @@ class Settings(BaseSettings):
 
     scim_bearer_token: SecretStr
 
+    # smtp://user:pass@host:port (STARTTLS when offered) or smtps://… (implicit TLS).
+    # Unset in dev/test means mail is written to the log instead.
+    smtp_url: SecretStr | None = None
+    mail_from: str = "Bonarda Works <no-reply@bonarda.works>"
+    # Regions a worker or project can belong to (NFR-4.3). Pilot: Ghana + one EU country.
+    data_regions: list[str] = Field(default_factory=lambda: ["GH", "EU"])
+
+    # E-sign and payroll adapters (spec §5.1 integrations). Only fakes exist
+    # until providers are selected — a pre-live gate (spec §10).
+    esign_provider: Literal["fake"] = "fake"
+    payroll_provider: Literal["fake"] = "fake"
+    esign_webhook_secret: SecretStr
+
+    # Stuck-contract detector (spec §7.7).
+    stuck_pending_minutes: int = 30
+    stuck_awaiting_hours: int = 72
+    # An activated engagement still not signalled to payroll after this long
+    # has its EngagementActivated event re-emitted by the same 15-minute job.
+    payroll_signal_grace_minutes: int = 30
+
     @model_validator(mode="after")
     def _require_production_hardening(self) -> Self:
         """Outside dev/test, refuse to start with a weak or placeholder secret,
         or with cookies allowed over plain HTTP — cheap to check once here
         instead of relying on every environment being configured correctly."""
-        if self.env in _NON_PRODUCTION_ENVS:
+        if self.env in NON_PRODUCTION_ENVS:
             return self
         _check_strong_secret(self.jwt_signing_key, field="jwt_signing_key")
         _check_strong_secret(self.scim_bearer_token, field="scim_bearer_token")
+        _check_strong_secret(self.esign_webhook_secret, field="esign_webhook_secret")
         _check_no_placeholder(self.oidc_client_secret, field="oidc_client_secret")
         if not self.cookie_secure:
             raise ValueError("cookie_secure must be true outside dev/test")
