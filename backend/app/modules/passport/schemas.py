@@ -1,11 +1,26 @@
-from typing import ClassVar
+from datetime import date, datetime
+from typing import Annotated, ClassVar, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from app.core.i18n import Locale
 from app.core.outbox.events import DomainEvent
-from app.modules.passport.enums import VerificationStatus
+from app.modules.passport.enums import (
+    AvailabilityStatus,
+    OnboardingState,
+    StandingTier,
+    VerificationStatus,
+    WorkerStatus,
+    WorkerType,
+)
 
 
 class SkillCreate(BaseModel):
@@ -43,3 +58,71 @@ class WorkerSkill(BaseModel):
 class WorkerUpdated(DomainEvent):
     event_type: ClassVar[str] = "passport.worker_updated"
     fields: list[str]
+
+
+LanguageCode = Annotated[str, StringConstraints(pattern=r"^[a-z]{2,3}(-[A-Z]{2})?$")]
+
+
+class _SummaryFields(BaseModel):
+    id: UUID
+    full_name: str
+    worker_type: WorkerType
+    status: WorkerStatus
+    data_region: str
+    base_location: str | None
+    availability_status: AvailabilityStatus
+    available_from: date | None
+    standing_tier: StandingTier
+    skills: list[WorkerSkill]
+
+
+class _DetailFields(_SummaryFields):
+    languages: list[str]
+    onboarding_state: OnboardingState
+    dormant_since: date | None
+    created_at: datetime
+
+
+class WorkerSummary(_SummaryFields):
+    view: Literal["summary"] = "summary"
+
+
+class WorkerDetail(_DetailFields):
+    view: Literal["detail"] = "detail"
+
+
+class WorkerSelf(_DetailFields):
+    view: Literal["self"] = "self"
+    email: str
+    locale: str
+
+
+WorkerView = Annotated[WorkerSummary | WorkerDetail | WorkerSelf, Field(discriminator="view")]
+
+
+class WorkerUpdate(BaseModel):
+    """Self-editable fields only (FR-1.5). Unknown fields are rejected."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    full_name: str | None = Field(default=None, min_length=1, max_length=200)
+    base_location: str | None = Field(default=None, max_length=120)
+    languages: list[LanguageCode] | None = Field(default=None, max_length=10)
+    availability_status: AvailabilityStatus | None = None
+    available_from: date | None = None
+
+    @field_validator("languages")
+    @classmethod
+    def _dedupe(cls, value: list[str] | None) -> list[str] | None:
+        return list(dict.fromkeys(value)) if value is not None else None
+
+    @model_validator(mode="after")
+    def _consistent(self) -> Self:
+        if "full_name" in self.model_fields_set and self.full_name is None:
+            raise ValueError("full_name cannot be cleared")
+        wants_date = self.availability_status is AvailabilityStatus.AVAILABLE_FROM
+        if wants_date and self.available_from is None:
+            raise ValueError("available_from is required with availability_status=available_from")
+        if self.available_from is not None and not wants_date:
+            raise ValueError("available_from needs availability_status=available_from")
+        return self

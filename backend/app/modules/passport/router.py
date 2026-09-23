@@ -5,9 +5,24 @@ from fastapi import APIRouter, Depends, Query
 
 from app.core.context import Actor
 from app.core.db.session import SessionDep
-from app.modules.identity.service import CurrentActor, Permission, require_permission
-from app.modules.passport.dependencies import WorkerEditor
-from app.modules.passport.schemas import SkillClaimCreate, SkillCreate, SkillRead, WorkerSkill
+from app.modules.identity.service import (
+    CurrentActor,
+    Permission,
+    Visibility,
+    require_permission,
+    require_visibility,
+)
+from app.modules.passport.dependencies import WorkerEditor, WorkerReader
+from app.modules.passport.profile import ProfileService
+from app.modules.passport.schemas import (
+    SkillClaimCreate,
+    SkillCreate,
+    SkillRead,
+    WorkerSelf,
+    WorkerSkill,
+    WorkerUpdate,
+    WorkerView,
+)
 from app.modules.passport.skills import ClaimService, SkillService
 
 router = APIRouter(prefix="/api/v1", tags=["passport"])
@@ -41,3 +56,30 @@ async def claim_skill(
 @router.delete("/workers/me/skills/{skill_id}", status_code=204)
 async def remove_skill_claim(skill_id: UUID, who: WorkerEditor, session: SessionDep) -> None:
     await ClaimService(session).remove(who, skill_id)
+
+
+@router.get("/workers/me")
+async def read_my_passport(who: WorkerReader, session: SessionDep) -> WorkerSelf:
+    return await ProfileService(session).view_self(who)
+
+
+@router.patch("/workers/me")
+async def update_my_passport(
+    body: WorkerUpdate, who: WorkerEditor, session: SessionDep
+) -> WorkerSelf:
+    return await ProfileService(session).update_self(who, body)
+
+
+@router.post("/workers/me/onboarding/complete")
+async def complete_onboarding(who: WorkerEditor, session: SessionDep) -> WorkerSelf:
+    return await ProfileService(session).complete_onboarding(who)
+
+
+@router.get("/workers/{worker_id}")
+async def read_worker(
+    worker_id: UUID,
+    actor: CurrentActor,
+    session: SessionDep,
+    level: Annotated[Visibility, Depends(require_visibility(Visibility.SUMMARY))],
+) -> WorkerView:
+    return await ProfileService(session).view(actor, worker_id, level)
