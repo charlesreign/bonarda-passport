@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit.writer import write_audit
 from app.core.context import Actor
+from app.core.db.errors import violated_constraint
 from app.core.enums import AccountStatus, AuthProvider, UserRole
 from app.core.errors import Conflict, NotFound
 from app.core.outbox.writer import emit_event
@@ -56,6 +57,8 @@ async def provision_worker_account(
             )
             await session.flush()
     except IntegrityError as exc:
+        if violated_constraint(exc) != "uq_user_accounts_email":
+            raise
         raise Conflict("An account with this email already exists", code="email_in_use") from exc
     # Audit rows about workers carry no contact data (spec §6.3 erasure): the
     # append-only audit log rejects UPDATE/DELETE, so an email written here

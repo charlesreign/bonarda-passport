@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit.writer import write_audit
 from app.core.context import Actor
+from app.core.db.errors import violated_constraint
 from app.core.enums import AccountStatus, UserRole
 from app.core.errors import BadRequest, NotFound
 from app.core.outbox.writer import emit_event
@@ -51,6 +52,8 @@ class GrantService:
                 )
                 await self.session.flush()
         except IntegrityError as exc:
+            if violated_constraint(exc) != "fk_access_grants_scoped_worker_id":
+                raise
             raise BadRequest("No worker with this id", code="grant_worker_not_found") from exc
         await write_audit(
             self.session,

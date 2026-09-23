@@ -61,13 +61,31 @@ def _parse_role(value: Any) -> UserRole:
     return role
 
 
+_CORE_USER_URN = "urn:ietf:params:scim:schemas:core:2.0:user:"
+
+
+def _strip_urn(path: str) -> str:
+    """RFC 7644 §3.10 allows fully qualified paths. Strip the core User schema;
+    for any other URN keep only the attribute after the last ':' so a managed
+    attribute in a foreign schema is rejected rather than silently ignored."""
+    lowered = path.lower()
+    if lowered.startswith(_CORE_USER_URN):
+        return path[len(_CORE_USER_URN) :]
+    if lowered.startswith("urn:"):
+        attribute = path.rsplit(":", 1)[-1]
+        if attribute.split("[")[0].split(".")[0].lower() in _MANAGED_PATHS:
+            raise _unsupported(f"'{path}' is not a supported attribute path")
+    return path
+
+
 def _normalize(path: str | None) -> str | None:
     """SCIM attribute names are case-insensitive (RFC 7643 §2.1) and may carry
     a value filter (`roles[value eq "pm"]`) or a sub-attribute (`name.givenName`)
-    that this dispatch ignores the qualifier of."""
+    that this dispatch ignores the qualifier of. A path may also be fully
+    qualified with a schema URN (RFC 7644 §3.10)."""
     if path is None:
         return None
-    return path.split("[")[0].split(".")[0].lower()
+    return _strip_urn(path).split("[")[0].split(".")[0].lower()
 
 
 def _dict_keys_lower(value: Any) -> set[str]:
@@ -92,7 +110,8 @@ def _interpret(patch: ScimPatch) -> _Changes:
                 )
             continue
         if normalized in _MANAGED_PATHS:
-            if operation.path is not None and ("[" in operation.path or "." in operation.path):
+            stripped = _strip_urn(operation.path) if operation.path is not None else None
+            if stripped is not None and ("[" in stripped or "." in stripped):
                 raise _unsupported(f"'{operation.path}' is not supported; use a plain path")
             if normalized == "active":
                 changes.active = _parse_bool(operation.value)

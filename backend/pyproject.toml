@@ -25,6 +25,11 @@ packages = ["app"]
 module = ["arq.*", "asyncpg.*", "authlib.*", "redis.*", "testcontainers.*", "fakeredis.*"]
 ignore_missing_imports = true
 
+[tool.coverage.run]
+# SQLAlchemy's async engine runs sync work in greenlets; without this,
+# coverage misses lines after awaits in async services.
+concurrency = ["greenlet", "thread"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
