@@ -1,34 +1,24 @@
 import json
 import secrets
 from datetime import timedelta
-from uuid import UUID
 
-import structlog
 from redis.asyncio import Redis
-from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit.writer import write_audit
 from app.core.config import Settings
+from app.core.context import Actor
 from app.core.enums import AccountStatus, AuthProvider, UserRole
 from app.core.errors import BadRequest, Conflict, Forbidden
-from app.core.outbox.writer import emit_event
 from app.core.time import utcnow
+from app.modules.identity.access_revocation import revoke_access
 from app.modules.identity.models import UserAccount
 from app.modules.identity.oidc import IdTokenClaims, OidcProvider
-from app.modules.identity.repository import (
-    RefreshSessionRepository,
-    UserRepository,
-    normalize_email,
-)
-from app.modules.identity.revocation import mark_revoked
-from app.modules.identity.schemas import AccessRevoked
+from app.modules.identity.repository import UserRepository, normalize_email
 
 STATE_PREFIX = "oidc:state:"
 STATE_TTL_SECONDS = 600
 ROLE_PRECEDENCE = (UserRole.ADMIN, UserRole.PEOPLE_OPS, UserRole.FINANCE, UserRole.PM)
-
-log = structlog.get_logger(__name__)
 
 
 class OidcLoginService:
@@ -64,8 +54,16 @@ class OidcLoginService:
             code=code, code_verifier=pending["code_verifier"], nonce=pending["nonce"]
         )
         self._require_mfa(claims)
-        role = self._role_for(claims.groups)
-        return await self._upsert(claims, role), claims
+        user = await self._upsert(claims, self._role_for(claims.groups))
+        await write_audit(
+            self.session,
+            actor=Actor(user_id=user.id, role=user.role),
+            action="auth.sso_login",
+            target_type="user_account",
+            target_id=user.id,
+            after={"amr": claims.amr},
+        )
+        return user, claims
 
     def _require_mfa(self, claims: IdTokenClaims) -> None:
         amr_ok = bool(set(claims.amr) & set(self.settings.oidc_required_amr))
@@ -121,20 +119,17 @@ class OidcLoginService:
                 after={"role": role.value},
                 reason="idp_group_membership",
             )
-            await RefreshSessionRepository(self.session).revoke_all_for_user(
-                user.id, utcnow(), reason="admin"
-            )
-            await self._mark_revoked_quietly(user.id)
-            # Same as a SCIM role change: staffing ends (spec §7.6).
-            await emit_event(
-                self.session, AccessRevoked(aggregate_id=user.id, reason="role_changed")
+            # The same path as a SCIM role change (spec §7.6). The marker is
+            # one second in the past: tokens from before this login stop
+            # working, while the session this login is about to issue stays
+            # valid.
+            await revoke_access(
+                self.session,
+                self.redis,
+                self.settings,
+                user,
+                before={"status": user.status.value, "role": previous.value},
+                reason="role_changed",
+                marker_at=utcnow() - timedelta(seconds=1),
             )
         return user
-
-    async def _mark_revoked_quietly(self, user_id: UUID) -> None:
-        # One second in the past: tokens from before this login stop working,
-        # while the session this login is about to issue stays valid.
-        try:
-            await mark_revoked(self.redis, self.settings, user_id, utcnow() - timedelta(seconds=1))
-        except (RedisError, OSError):
-            log.error("auth.revocation_marker_unavailable", user_id=str(user_id))

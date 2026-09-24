@@ -8,7 +8,7 @@ from app.core.config import Settings
 from app.core.outbox.writer import emit_event
 from app.core.time import utcnow
 from app.modules.engagements.repository import EngagementRepository
-from app.modules.engagements.schemas import EngagementActivated
+from app.modules.engagements.schemas import PayrollSignalRequested
 
 log = structlog.get_logger(__name__)
 
@@ -41,9 +41,10 @@ async def flag_stuck(session: AsyncSession, settings: Settings) -> int:
 
 async def retry_payroll_signals(session: AsyncSession, settings: Settings) -> int:
     """Every 15 minutes (with `flag_stuck`): an activated engagement whose
-    payroll signal was lost (dead-lettered handler) gets `EngagementActivated`
-    re-emitted. At most one re-emit per engagement per run; the handlers are
-    idempotent (`payroll_signaled_at`), so a signal is still sent only once."""
+    payroll signal was lost (dead-lettered handler) gets `PayrollSignalRequested`
+    emitted. That event is wired only to the payroll-signal handler, not to
+    `EngagementActivated`'s mail handlers, so a retry never re-mails the
+    worker or PMs — even across many runs while the signal stays lost."""
     now = utcnow()
     lost = await EngagementRepository(session).payroll_unsignalled(
         billable_before=now - timedelta(minutes=settings.payroll_signal_grace_minutes)
@@ -56,13 +57,6 @@ async def retry_payroll_signals(session: AsyncSession, settings: Settings) -> in
             target_type="engagement",
             target_id=engagement.id,
         )
-        await emit_event(
-            session,
-            EngagementActivated(
-                aggregate_id=engagement.id,
-                worker_id=engagement.worker_id,
-                project_id=engagement.project_id,
-            ),
-        )
+        await emit_event(session, PayrollSignalRequested(aggregate_id=engagement.id))
         log.warning("engagements.payroll_signal_retried", engagement_id=str(engagement.id))
     return len(lost)

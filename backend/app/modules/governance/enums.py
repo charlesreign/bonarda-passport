@@ -12,3 +12,19 @@ class PolicyStatus(enum.StrEnum):
     DRAFT = "draft"
     ACTIVE = "active"
     RETIRED = "retired"
+
+
+class DisputeTargetType(enum.StrEnum):
+    FEEDBACK = "feedback"
+    STANDING_CHANGE = "standing_change"
+    ENGAGEMENT = "engagement"
+
+
+class DisputeStatus(enum.StrEnum):
+    OPEN = "open"
+    RESOLVED = "resolved"
+
+
+class DisputeResolution(enum.StrEnum):
+    UPHELD = "upheld"
+    REJECTED = "rejected"

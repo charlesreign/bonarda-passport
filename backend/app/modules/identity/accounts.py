@@ -110,3 +110,14 @@ async def active_pm_ids(session: AsyncSession, user_ids: Iterable[UUID]) -> set[
         )
     )
     return set(rows.all())
+
+
+async def staff_contacts(session: AsyncSession, role: UserRole) -> list[AccountContact]:
+    """Active accounts holding `role`, for operational mail such as the
+    dispute digest."""
+    rows = await session.scalars(
+        select(UserAccount)
+        .where(UserAccount.role == role, UserAccount.status == AccountStatus.ACTIVE)
+        .order_by(UserAccount.email)
+    )
+    return [AccountContact(email=user.email, locale=user.locale) for user in rows.all()]

@@ -1,7 +1,7 @@
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.audit.models import AuditLog
@@ -106,11 +106,18 @@ async def test_activated_engagements_never_signalled_to_payroll_are_retried(
     emitted = (
         await session.scalars(
             select(OutboxEvent.aggregate_id).where(
-                OutboxEvent.event_type == "engagements.engagement_activated"
+                OutboxEvent.event_type == "engagements.payroll_signal_requested"
             )
         )
     ).all()
     assert emitted == [lost.id]
+    assert (
+        await session.scalar(
+            select(func.count())
+            .select_from(OutboxEvent)
+            .where(OutboxEvent.event_type == "engagements.engagement_activated")
+        )
+    ) == 0
     audit = (
         await session.scalars(
             select(AuditLog).where(AuditLog.action == "engagement.payroll_signal_retried")

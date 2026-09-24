@@ -1,3 +1,4 @@
+import json
 from uuid import UUID, uuid4
 
 import pytest
@@ -256,3 +257,76 @@ async def test_onboarding_requires_location_languages_and_a_skill(
     assert again.status_code == 200
     actions = (await session.scalars(select(AuditLog.action))).all()
     assert actions.count("worker.onboarding_completed") == 1
+
+
+async def test_renaming_is_audited_without_the_name(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    worker, account = await make_worker(session, full_name="Kofi Mensah")
+
+    response = await client.patch(
+        "/api/v1/workers/me",
+        json={"full_name": "Kofi A. Mensah"},
+        headers=bearer(settings, account),
+    )
+
+    assert response.status_code == 200
+    audit = (
+        await session.scalars(select(AuditLog).where(AuditLog.action == "worker.renamed"))
+    ).one()
+    assert audit.target_id == worker.id
+    assert "Kofi" not in json.dumps([audit.before, audit.after, audit.reason])
+
+
+async def test_a_patch_that_changes_nothing_emits_no_event(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    _, account = await make_worker(session, full_name="Kofi Mensah")
+
+    response = await client.patch(
+        "/api/v1/workers/me", json={"full_name": "Kofi Mensah"}, headers=bearer(settings, account)
+    )
+
+    assert response.status_code == 200
+    assert (await session.scalars(select(OutboxEvent))).all() == []
+    assert (await session.scalars(select(AuditLog))).all() == []
+
+
+async def test_the_event_lists_only_fields_that_changed(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    _, account = await make_worker(session, full_name="Kofi Mensah")
+
+    await client.patch(
+        "/api/v1/workers/me",
+        json={"full_name": "Kofi Mensah", "base_location": "Kumasi"},
+        headers=bearer(settings, account),
+    )
+
+    event = (await session.scalars(select(OutboxEvent))).one()
+    assert event.payload["fields"] == ["base_location"]
+
+
+async def test_onboarding_audit_records_the_state_change(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    worker, account = await make_worker(session, onboarding_state=OnboardingState.INVITED)
+    worker.base_location = "Accra"
+    worker.languages = ["en"]
+    await session.commit()
+    await _add_skill_claim(session, worker.id)
+
+    response = await client.post(
+        "/api/v1/workers/me/onboarding/complete", headers=bearer(settings, account)
+    )
+
+    assert response.status_code == 200
+    audit = (
+        await session.scalars(
+            select(AuditLog).where(AuditLog.action == "worker.onboarding_completed")
+        )
+    ).one()
+    assert (audit.before, audit.after) == (
+        {"onboarding_state": "invited"},
+        {"onboarding_state": "profile_complete"},
+    )

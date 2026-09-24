@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit.writer import write_audit
 from app.core.config import Settings
+from app.core.context import Actor
 from app.core.enums import AccountStatus, UserRole
 from app.core.errors import Unauthorized
 from app.core.time import utcnow
@@ -119,13 +120,17 @@ class SessionService:
 
     async def end(self, refresh_token: str) -> None:
         current = await self.refresh.get_by_hash(hash_token(refresh_token))
-        if current is not None:
-            await self.refresh.revoke_family(current.family_id, utcnow(), reason="logout")
-            await write_audit(
-                self.session,
-                actor=None,
-                action="auth.logout",
-                target_type="user_account",
-                target_id=current.user_id,
-                after={"family_id": str(current.family_id)},
-            )
+        if current is None:
+            return
+        await self.refresh.revoke_family(current.family_id, utcnow(), reason="logout")
+        user = await self.users.get(current.user_id)
+        await write_audit(
+            self.session,
+            actor=Actor(user_id=user.id, role=user.role, worker_id=user.worker_id)
+            if user is not None
+            else None,
+            action="auth.logout",
+            target_type="user_account",
+            target_id=current.user_id,
+            after={"family_id": str(current.family_id)},
+        )

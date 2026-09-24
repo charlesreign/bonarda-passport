@@ -78,6 +78,11 @@ class Settings(BaseSettings):
     # has its EngagementActivated event re-emitted by the same 15-minute job.
     payroll_signal_grace_minutes: int = 30
 
+    # Spec §8.5: a dispute is due this many days after it is filed (seed: 30).
+    dispute_sla_days: int = 30
+    # The daily digest lists open disputes due within this many days.
+    dispute_reminder_days: int = 3
+
     @model_validator(mode="after")
     def _require_production_hardening(self) -> Self:
         """Outside dev/test, refuse to start with a weak or placeholder secret,

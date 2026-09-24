@@ -258,3 +258,16 @@ async def test_me_returns_the_account(
         "can_view_governance": False,
         "locale": "en",
     }
+
+
+async def test_logout_is_audited_as_the_user(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    user = await make_user(session, role=UserRole.PM)
+    issued = await _start(session, settings, user)
+    _use_cookie(client, issued.refresh_token)
+
+    await client.post("/api/v1/auth/logout")
+
+    audit = (await session.scalars(select(AuditLog).where(AuditLog.action == "auth.logout"))).one()
+    assert (audit.actor_id, audit.actor_role) == (user.id, "pm")

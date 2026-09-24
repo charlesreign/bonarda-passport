@@ -23,6 +23,7 @@ from app.worker.jobs import (
     purge_outbox,
     rebuild_roster,
     recalculate_standing,
+    remind_dispute_sla,
     run_event_handler,
 )
 
@@ -56,11 +57,14 @@ async def startup(ctx: dict[str, Any]) -> None:
         settings.redis_url, decode_responses=True, socket_timeout=1.0, socket_connect_timeout=1.0
     )
     ctx["handler_redis"] = handler_redis
+    mailer = build_mailer(settings)
+    ctx["settings"] = settings
+    ctx["mailer"] = mailer
     ctx["registry"] = build_registry(
         HandlerDeps(
             settings=settings,
             redis=handler_redis,
-            mailer=build_mailer(settings),
+            mailer=mailer,
             esign=build_esign(settings),
             payroll=build_payroll(settings),
         )
@@ -97,6 +101,7 @@ class WorkerSettings:
         cron(flag_stuck_engagements, minute=set(range(0, 60, 15))),
         cron(recalculate_standing, hour={3}, minute={0}),
         cron(rebuild_roster, hour={2}, minute={0}),
+        cron(remind_dispute_sla, hour={8}, minute={0}),
     ]
     on_startup = startup
     on_shutdown = shutdown

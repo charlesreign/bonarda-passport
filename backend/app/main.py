@@ -22,7 +22,7 @@ from app.modules.integrations.service import build_mailer
 from app.modules.passport.router import router as passport_router
 from app.modules.roster.router import router as roster_router
 from app.modules.standing.router import router as standing_router
-from app.wiring import visibility_sources
+from app.wiring import dispute_target_owners, visibility_sources
 
 
 @asynccontextmanager
@@ -56,6 +56,7 @@ def create_app(
     app.state.mailer = mailer
     app.state.oidc_provider = AuthlibOidcProvider(settings)
     app.state.visibility_policy = VisibilityPolicy(visibility_sources())
+    app.state.dispute_target_owners = dispute_target_owners()
     install_error_handlers(app)
     app.add_middleware(CorrelationIdMiddleware)
     app.include_router(health.router)

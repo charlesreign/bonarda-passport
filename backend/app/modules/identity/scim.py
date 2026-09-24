@@ -1,27 +1,18 @@
 from dataclasses import dataclass
 from typing import Any, Literal
 
-import structlog
 from redis.asyncio import Redis
-from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit.writer import write_audit
 from app.core.config import Settings
 from app.core.enums import AccountStatus, UserRole
 from app.core.errors import BadRequest, NotFound
-from app.core.outbox.writer import emit_event
 from app.core.time import utcnow
+from app.modules.identity.access_revocation import revoke_access
 from app.modules.identity.models import UserAccount
-from app.modules.identity.repository import (
-    AccessGrantRepository,
-    RefreshSessionRepository,
-    UserRepository,
-)
-from app.modules.identity.revocation import mark_revoked
-from app.modules.identity.schemas import AccessRevoked, ScimPatch
-
-log = structlog.get_logger(__name__)
+from app.modules.identity.repository import UserRepository
+from app.modules.identity.schemas import ScimPatch
 
 
 @dataclass
@@ -161,8 +152,6 @@ class ScimService:
         self.redis = redis
         self.settings = settings
         self.users = UserRepository(session)
-        self.refresh = RefreshSessionRepository(session)
-        self.grants = AccessGrantRepository(session)
 
     async def patch_user(self, subject: str, patch: ScimPatch) -> UserAccount:
         user = await self.users.get_by_oidc_subject(subject)
@@ -193,49 +182,13 @@ class ScimService:
                 reason = "role_changed"
 
         if reason is not None:
-            await self._revoke(user, before, reason)
-        return user
-
-    async def _revoke(
-        self,
-        user: UserAccount,
-        before: dict[str, str],
-        reason: Literal["deactivated", "role_changed"],
-    ) -> None:
-        now = utcnow()
-        await self.refresh.revoke_all_for_user(user.id, now, reason="admin")
-        try:
-            await mark_revoked(self.redis, self.settings, user.id, now)
-        except (RedisError, OSError):
-            # The DB revocation (refresh sessions + status) is durable and
-            # commits regardless; the marker only shortens the window during
-            # which an already-issued access token keeps working, and the
-            # 10-min access-token TTL already bounds that exposure (spec
-            # Section 8.1).
-            log.error("auth.revocation_marker_unavailable", user_id=str(user.id))
-        # FR-9.5/spec Section 7.6-7.7: a PM's own access no longer being valid
-        # must also close whatever detail-visibility grants they were given —
-        # otherwise a PM stays able to see a worker's file after deactivation.
-        for grant in await self.grants.list_open_for_grantee(user.id):
-            grant.revoked_at = now
-            await write_audit(
+            await revoke_access(
                 self.session,
-                actor=None,
-                action="access_grant.revoked",
-                target_type="access_grant",
-                target_id=grant.id,
-                before={"revoked_at": None},
-                after={"revoked_at": grant.revoked_at.isoformat()},
+                self.redis,
+                self.settings,
+                user,
+                before=before,
                 reason=reason,
+                marker_at=utcnow(),
             )
-        await write_audit(
-            self.session,
-            actor=None,
-            action="access.revoked",
-            target_type="user_account",
-            target_id=user.id,
-            before=before,
-            after={"status": user.status.value, "role": user.role.value},
-            reason=reason,
-        )
-        await emit_event(self.session, AccessRevoked(aggregate_id=user.id, reason=reason))
+        return user
