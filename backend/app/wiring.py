@@ -14,6 +14,7 @@ from app.modules.engagements.service import (
     feedback_worker_id,
     project_relationship,
 )
+from app.modules.governance import handlers as governance_handlers
 from app.modules.governance.service import DisputeTargetType, TargetOwner
 from app.modules.identity import handlers as identity_handlers
 from app.modules.identity.service import VisibilitySource
@@ -38,8 +39,11 @@ def build_registry(deps: HandlerDeps) -> HandlerRegistry:
     identity_handlers.register(
         registry, redis=deps.redis, settings=deps.settings, mailer=deps.mailer
     )
-    engagements_handlers.register(registry, esign=deps.esign, payroll=deps.payroll)
-    standing_handlers.register(registry)
+    engagements_handlers.register(
+        registry, esign=deps.esign, payroll=deps.payroll, mailer=deps.mailer
+    )
+    standing_handlers.register(registry, mailer=deps.mailer)
+    governance_handlers.register(registry, mailer=deps.mailer)
     roster_handlers.register(registry)
     return registry
 
