@@ -64,9 +64,11 @@ async def demo_login(
 
 @router.post("/engagements/{engagement_id}/sign", status_code=204)
 async def demo_sign_contract(engagement_id: UUID, actor: CurrentActor, session: SessionDep) -> None:
-    """Plays the fake e-sign provider's signed webhook for a sent contract."""
+    """Plays the fake e-sign provider's signed webhook for a sent contract.
+    Only the freelancer the contract is for can sign it; anyone else gets the
+    same 404 as for an unknown engagement."""
     engagement = await session.get(Engagement, engagement_id)
-    if engagement is None:
+    if engagement is None or actor.worker_id != engagement.worker_id:
         raise NotFound("Engagement not found", code="engagement_not_found")
     if engagement.esign_envelope_id is None:
         raise Conflict("The contract has not been sent yet; try again", code="contract_not_sent")

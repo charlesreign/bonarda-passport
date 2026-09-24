@@ -47,6 +47,8 @@ OPS_EMAIL = "ama.ops@bonarda.works"
 SKILLS: dict[str, tuple[str, str]] = {
     "data-analysis": ("Data analysis", "Analyse de données"),
     "sql": ("SQL", "SQL"),
+    "software-engineering": ("Software engineering", "Génie logiciel"),
+    "devsecops": ("DevSecOps", "DevSecOps"),
     "python": ("Python", "Python"),
     "dashboarding": ("Dashboarding", "Tableaux de bord"),
     "project-management": ("Project management", "Gestion de projet"),
@@ -93,6 +95,20 @@ class DemoWorker:
 
 
 WORKERS = [
+    DemoWorker(
+        "Charlie",
+        "Charles Gold",
+        "GH",
+        "Accra",
+        ["en", "tw"],
+        {"software-engineering": True, "devsecops": True, "python": True},
+        history=[
+            Past(2, "efua", skills=["software-engineering", "python"]),
+            Past(5, "luc", skills=["software-engineering", "devsecops"]),
+            Past(8, "efua"),
+            Past(11, "luc"),
+        ],
+    ),
     DemoWorker(
         "kofi",
         "Kofi Mensah",

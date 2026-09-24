@@ -5,7 +5,9 @@ import {
   ClockCounterClockwise,
   Flag,
   Globe,
+  HourglassMedium,
   MapPin,
+  PenNib,
   Scales,
   ShieldCheck,
   Translate,
@@ -242,10 +244,64 @@ function StandingCard() {
   );
 }
 
+const IN_FLIGHT = ["pending_signature", "awaiting_signature"];
+
+/** The freelancer's side of the e-signature step. In production the provider
+ * emails the contract; in the demo this card plays that role. */
+function ContractToSign({ engagement }: { engagement: Engagement }) {
+  const queryClient = useQueryClient();
+  const sign = useMutation({
+    mutationFn: () => api(`/demo/engagements/${engagement.id}/sign`, { method: "POST" }),
+    onSuccess: () => {
+      for (const key of [["engagements", engagement.worker_id], ["me-worker"]])
+        void queryClient.invalidateQueries({ queryKey: key });
+    },
+  });
+  if (engagement.status === "pending_signature")
+    return (
+      <p className="muted small-text row top-gap" role="status">
+        <HourglassMedium size={16} aria-hidden="true" />
+        Your contract is being prepared. It will appear here to sign in a moment.
+      </p>
+    );
+  return (
+    <div className="panel-soft top-gap" style={{ borderLeft: "3px solid var(--color-highlight)" }}>
+      <p className="row" style={{ fontWeight: 650 }}>
+        <PenNib size={18} aria-hidden="true" />
+        Contract ready for your signature
+      </p>
+      <dl className="meta top-gap" style={{ margin: 0 }}>
+        <span>
+          <strong>Scope:</strong>&nbsp;{engagement.contract_terms.scope}
+        </span>
+        <span>
+          <strong>Start:</strong>&nbsp;{date(engagement.start_date)}
+        </span>
+        <span className="num">
+          <strong>Rate:</strong>&nbsp;{engagement.rate} {engagement.currency}/day
+        </span>
+        <span>
+          <strong>Mode:</strong>&nbsp;{engagement.work_mode}
+        </span>
+      </dl>
+      <div className="row wrap top-gap">
+        <button className="small" onClick={() => sign.mutate()} disabled={sign.isPending}>
+          <PenNib size={16} aria-hidden="true" />
+          {sign.isPending ? "Signing…" : "Sign contract"}
+        </button>
+        <span className="muted small-text">Demo e-signature: stands in for the provider's signing email.</span>
+      </div>
+      <ErrorNote error={sign.error} />
+    </div>
+  );
+}
+
 function Engagements({ workerId }: { workerId: string }) {
   const { data, error, isLoading } = useQuery({
     queryKey: ["engagements", workerId],
     queryFn: () => api<Engagement[]>(`/workers/${workerId}/engagements`),
+    // Pick up the contract as soon as the worker process has sent it.
+    refetchInterval: (query) => (query.state.data?.some((e) => IN_FLIGHT.includes(e.status)) ? 2000 : false),
   });
   return (
     <Card title="Engagements" icon={<ClockCounterClockwise size={20} aria-hidden="true" />}>
@@ -276,6 +332,7 @@ function Engagements({ workerId }: { workerId: string }) {
               <DisputeButton targetType="engagement" targetId={e.id} label="engagement" />
             </div>
           </div>
+          {IN_FLIGHT.includes(e.status) && <ContractToSign engagement={e} />}
           {e.feedback && (
             <div className="feedback panel-soft">
               <ul className="answers">

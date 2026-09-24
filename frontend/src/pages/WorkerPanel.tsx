@@ -1,4 +1,4 @@
-import { ArrowsClockwise, CalendarBlank, Check, MapPin, PenNib, UserPlus, X } from "@phosphor-icons/react";
+import { ArrowsClockwise, CalendarBlank, Check, HourglassMedium, MapPin, UserPlus, X } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
@@ -177,10 +177,6 @@ function EngagementRow({ engagement, project }: { engagement: Engagement; projec
     void queryClient.invalidateQueries({ queryKey: ["engagements", engagement.worker_id] });
     void queryClient.invalidateQueries({ queryKey: ["worker", engagement.worker_id] });
   };
-  const sign = useMutation({
-    mutationFn: () => api(`/demo/engagements/${engagement.id}/sign`, { method: "POST" }),
-    onSuccess: refresh,
-  });
   const complete = useMutation({
     mutationFn: () => api(`/engagements/${engagement.id}/complete`, { method: "POST", body: {} }),
     onSuccess: refresh,
@@ -206,15 +202,16 @@ function EngagementRow({ engagement, project }: { engagement: Engagement; projec
       </div>
       {mine && (
         <div className="fs-actions">
-          {engagement.status === "awaiting_signature" && (
-            <button className="small" onClick={() => sign.mutate()} disabled={sign.isPending}>
-              <PenNib size={16} aria-hidden="true" />
-              Simulate freelancer signature
-            </button>
-          )}
           {engagement.status === "pending_signature" && (
-            <span className="muted small-text" role="status">
+            <span className="muted small-text row" role="status">
+              <HourglassMedium size={16} aria-hidden="true" />
               Sending the contract…
+            </span>
+          )}
+          {engagement.status === "awaiting_signature" && (
+            <span className="muted small-text row" role="status">
+              <HourglassMedium size={16} aria-hidden="true" />
+              Awaiting the freelancer's signature. This updates by itself once they sign.
             </span>
           )}
           {engagement.status === "active" && (
@@ -245,7 +242,7 @@ function EngagementRow({ engagement, project }: { engagement: Engagement; projec
           {engagement.feedback.free_text ? ` · “${engagement.feedback.free_text}”` : ""}
         </p>
       )}
-      <ErrorNote error={sign.error ?? complete.error} />
+      <ErrorNote error={complete.error} />
     </article>
   );
 }

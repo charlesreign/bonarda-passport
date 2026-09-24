@@ -36,9 +36,9 @@ company IdP). Freelancers can also use a real magic link: enter e.g.
    - **First shot:** qualified people with little recent work, on the same page as the candidates and always shown.
 2. **Reactivate Yaw Darko.**
    - Open Yaw from the candidates. The terms are prefilled from his last engagement.
-   - Confirm. The worker process sends the contract.
-   - Click **Simulate freelancer signature**, and the engagement goes active.
-   - **Mark completed**, then **Give feedback**.
+   - Confirm. The worker process sends the contract, and the drawer shows it awaiting Yaw's signature.
+   - Sign in as **Yaw** in another browser or a private window. His passport shows **Contract ready for your signature**. Click **Sign contract**. This demo step stands in for the e-sign provider's email, and only the freelancer on the contract can use it.
+   - Back as Efua, the engagement is active without a reload. **Mark completed**, then **Give feedback**.
 3. **Shortlist someone in First shot.** This gives you detail visibility of that person; **Pass** needs a reason code.
 4. **Yaw (freelancer) → My passport.**
    - The engagement and its feedback appear right away (the same record the PM sees).
