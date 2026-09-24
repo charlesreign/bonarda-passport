@@ -79,3 +79,4 @@ Each item below must become a named task with a test in the plan listed.
 | 3A | `standing_changes.actor_id` has no `ON DELETE SET NULL` | A cascading update would hit the append-only trigger; staff accounts are revoked, never deleted |
 | 3A | `GET /workers/{id}/standing` (detail visibility) exists alongside `GET /workers/me/standing` | Spec §7.1 gives detail viewers standing factors |
 | 3A | Reactivation does not re-check profile gaps (location, languages, skills); first-time engagement does | FR-4.3's fast path for returning workers |
+| 3A | Reactivation prefill uses the same definition of past work as reactivation (signed, active or completed engagements); a worker whose only engagement is unsigned gets 404 no_prior_engagement from prefill | Prefill and reactivation must agree; before, prefill returned terms that reactivation then refused |
