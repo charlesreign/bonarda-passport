@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit.writer import write_audit
 from app.core.outbox.writer import emit_event
-from app.modules.passport.service import verify_skill
+from app.modules.passport.service import lock_skill_claim, verify_skill
 from app.modules.standing.repository import SkillEvidenceRepository
 from app.modules.standing.schemas import SkillVerified
 
@@ -41,15 +41,21 @@ async def record_skill_evidence(
     evidence = SkillEvidenceRepository(session)
     verified = []
     for skill_id in dict.fromkeys(skill_ids):
+        # Lock the claim before inserting evidence and counting: two concurrent
+        # handlers for the same (worker, skill) otherwise both count under
+        # READ COMMITTED before either sees the other's row, and neither verifies.
+        claim_exists = await lock_skill_claim(session, worker_id, skill_id)
         await evidence.add(
             worker_id=worker_id,
             skill_id=skill_id,
             engagement_id=engagement_id,
             reviewer_id=reviewer_id,
         )
-        if await evidence.distinct_reviewers(
-            worker_id, skill_id
-        ) >= min_reviewers and await mark_verified(session, worker_id, skill_id):
+        if (
+            claim_exists
+            and await evidence.distinct_reviewers(worker_id, skill_id) >= min_reviewers
+            and await mark_verified(session, worker_id, skill_id)
+        ):
             verified.append(skill_id)
     return verified
 

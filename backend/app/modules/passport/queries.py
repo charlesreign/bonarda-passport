@@ -119,6 +119,17 @@ async def set_standing_tier(session: AsyncSession, worker_id: UUID, tier: Standi
         worker.standing_tier = tier
 
 
+async def lock_skill_claim(session: AsyncSession, worker_id: UUID, skill_id: UUID) -> bool:
+    """Row-locks the claim so concurrent evidence recording for one (worker,
+    skill) serializes. Returns whether the claim exists."""
+    claim_id = await session.scalar(
+        select(SkillClaim.id)
+        .where(SkillClaim.worker_id == worker_id, SkillClaim.skill_id == skill_id)
+        .with_for_update()
+    )
+    return claim_id is not None
+
+
 async def verify_skill(session: AsyncSession, worker_id: UUID, skill_id: UUID) -> bool:
     """Marks a claim bonarda_verified (FR-2.2). True only if this call changed it."""
     claim = await session.scalar(

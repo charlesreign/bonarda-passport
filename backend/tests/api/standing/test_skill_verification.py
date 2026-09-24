@@ -1,9 +1,10 @@
+import asyncio
 from collections.abc import Awaitable, Callable
 from uuid import UUID, uuid4
 
 from httpx import AsyncClient
 from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.audit.models import AuditLog
 from app.core.config import Settings
@@ -12,6 +13,7 @@ from app.core.outbox.models import OutboxEvent
 from app.modules.identity.models import UserAccount
 from app.modules.passport.enums import VerificationStatus
 from app.modules.passport.models import Skill, SkillClaim
+from app.modules.standing.evidence import record_skill_evidence
 from app.modules.standing.models import SkillEvidence
 from tests.support import (
     POSITIVE_ANSWERS,
@@ -130,3 +132,58 @@ async def test_verified_skill_shows_on_the_worker_passport(
     me = await client.get("/api/v1/workers/me", headers=bearer(settings, account))
 
     assert me.json()["skills"][0]["verification_status"] == "bonarda_verified"
+
+
+async def test_concurrent_feedback_from_two_reviewers_still_verifies(
+    session: AsyncSession, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """Two FeedbackSubmitted handlers for the same (worker, skill) run in their
+    own transactions concurrently. The claim lock must serialize them so the
+    second one's count sees the first one's committed evidence."""
+    worker, _ = await make_ready_worker(session)
+    skill = (await session.scalars(select(Skill))).one()
+    ama = await make_user(session, role=UserRole.PM)
+    kwame = await make_user(session, role=UserRole.PM)
+    project = await make_project(session, staff=[ama, kwame])
+    engagement_a = await make_engagement(session, worker_id=worker.id, project_id=project.id)
+    engagement_b = await make_engagement(session, worker_id=worker.id, project_id=project.id)
+
+    barrier = asyncio.Event()
+
+    async def _record(engagement_id: UUID, reviewer_id: UUID) -> None:
+        async with sessionmaker() as s, s.begin():
+            await barrier.wait()
+            await record_skill_evidence(
+                s,
+                engagement_id=engagement_id,
+                worker_id=worker.id,
+                reviewer_id=reviewer_id,
+                skill_ids=[skill.id],
+                min_reviewers=2,
+            )
+
+    task_a = asyncio.create_task(_record(engagement_a.id, ama.id))
+    task_b = asyncio.create_task(_record(engagement_b.id, kwame.id))
+    await asyncio.sleep(0)
+    barrier.set()
+    await asyncio.gather(task_a, task_b)
+
+    assert await _claim_status(session, worker.id) is VerificationStatus.BONARDA_VERIFIED
+    assert (
+        len(
+            (
+                await session.scalars(
+                    select(OutboxEvent).where(OutboxEvent.event_type == "standing.skill_verified")
+                )
+            ).all()
+        )
+        == 1
+    )
+    assert (
+        len(
+            (
+                await session.scalars(select(AuditLog).where(AuditLog.action == "skill.verified"))
+            ).all()
+        )
+        == 1
+    )
