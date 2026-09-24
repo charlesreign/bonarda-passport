@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.engagements.enums import HISTORY_STATUSES, EngagementStatus
 from app.modules.engagements.models import Engagement, Feedback
-from app.modules.engagements.schemas import EngagementActivity, StandingRecord
+from app.modules.engagements.repository import ProjectRepository
+from app.modules.engagements.schemas import EngagementActivity, ProjectContext, StandingRecord
 
 
 async def standing_records(session: AsyncSession, worker_id: UUID) -> list[StandingRecord]:
@@ -63,3 +64,25 @@ async def engagement_activity(
 
 async def engagement_worker_id(session: AsyncSession, engagement_id: UUID) -> UUID | None:
     return await session.scalar(select(Engagement.worker_id).where(Engagement.id == engagement_id))
+
+
+async def staffed_project(
+    session: AsyncSession, user_id: UUID, project_id: UUID
+) -> ProjectContext | None:
+    """The project, if this user actively staffs it as an active PM."""
+    projects = ProjectRepository(session)
+    project = await projects.get(project_id)
+    if project is None or not await projects.is_staffed(project.id, user_id):
+        return None
+    return ProjectContext(
+        id=project.id,
+        name=project.name,
+        data_region=project.data_region,
+        required_skill_ids=project.required_skill_ids,
+        starts_on=project.starts_on,
+        status=project.status,
+    )
+
+
+async def staffed_project_ids(session: AsyncSession, user_id: UUID) -> list[UUID]:
+    return [p.id for p in await ProjectRepository(session).list_staffed_by(user_id)]

@@ -230,6 +230,17 @@ class EngagementActivity(BaseModel):
     last_engaged_on: date | None
 
 
+class ProjectContext(BaseModel):
+    """A project as other modules may see it."""
+
+    id: UUID
+    name: str
+    data_region: str
+    required_skill_ids: list[UUID]
+    starts_on: date | None
+    status: ProjectStatus
+
+
 def engagement_read(engagement: Engagement, feedback: Feedback | None) -> EngagementRead:
     return EngagementRead(
         id=engagement.id,

@@ -122,9 +122,13 @@ async def make_project(
     data_region: str = "GH",
     name: str = "Project Volta",
     required_skill_ids: list[UUID] | None = None,
+    starts_on: date | None = None,
 ) -> Project:
     project = Project(
-        name=name, data_region=data_region, required_skill_ids=required_skill_ids or []
+        name=name,
+        data_region=data_region,
+        required_skill_ids=required_skill_ids or [],
+        starts_on=starts_on,
     )
     session.add(project)
     await session.flush()
