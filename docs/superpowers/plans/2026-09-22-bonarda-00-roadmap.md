@@ -10,7 +10,7 @@ The spec's MVA (§10) is delivered as six sequential plans. Each plan ends with 
 | 2A | `2026-09-23-bonarda-02a-worker-passport.md` | `passport` (workers, skills taxonomy and claims, profile views, onboarding, consents, PM invitations), SMTP mailer, sign-in mail sent by the worker, per-account locale, Plan 1 identity carry-forward fixes | 1 | Implemented on `feat/worker-passport` |
 | 2B | `2026-09-24-bonarda-02b-engagements.md` | `engagements` (projects, staffing, first-time engagements, reactivation prefill and create, contracts via fake e-sign, e-sign webhook, payroll signal, completion, feedback, stuck detector), e-sign/payroll adapters, PM visibility sources, `AccessRevoked` → end `project_staff` | 2A | Written |
 | 3A | `2026-09-25-bonarda-03a-standing.md` | governance policies (versioned, two-person activation), standing (rules engine, append-only standing changes, skill evidence and verification, re-evaluation on activation and nightly, explanation API) | 2B | Implemented on `feat/standing` |
-| 3B | `…-03b-roster.md` | roster (read-model, scoring, candidates, first-shot, impression logging, first-shot visibility source) | 3A | Not written |
+| 3B | `2026-09-26-bonarda-03b-roster.md` | roster (read-model, scoring, candidates, first-shot, impression logging, first-shot visibility source) | 3A | Written |
 | 4 | `…-04-governance.md` | Disputes with SLA, standing overrides, concentration rollups and alerts, audit-log API, retention enforcement and anonymization | 3B | Not written |
 | 5 | `…-05-frontend.md` | Vite/React app: generated API client, providers, `/passport`, `/console`, `/ops` bundles, i18n (en/fr), size budgets, Playwright + axe | 1–4 (API contract) | Not written |
 | 6 | `…-06-demo-and-operations.md` | Docker Compose with Keycloak + Mailpit, real `AuthlibOidcProvider` verification against Keycloak, seed data, Prometheus metrics and custom counters, Locust profile | 1–5 | Not written |
@@ -55,8 +55,15 @@ Each item below must become a named task with a test in the plan listed.
 | any | `recalculate_all` re-evaluates every worker in one transaction; batch it if the pool grows well past the pilot's 5,000 profiles. The run also holds a `FOR NO KEY UPDATE` lock on every pool worker until it commits, so a tiering activation during working hours delays worker profile edits, status changes and feedback recalculations for the length of the run; batch commits per group of workers (recalculate is idempotent). |
 | any | Skill verification never reverses. Raising the policy threshold does not un-verify skills already verified. |
 | any | Skill verification and tier recalculation each take locks in a fixed order, and future code that touches them must keep it: workers are locked `FOR NO KEY UPDATE`, in id order; skill claims are locked `FOR UPDATE`, sorted by skill id. |
-| 3B | The standing explanation shows the stored tier alongside live factors and the currently active policy version. Until the handler or nightly run catches up, these can disagree. Return the evaluated tier as well (e.g. `evaluated_tier`), or take `policy_version` from the latest standing change. |
 | 4 | Add DB invariants for policies: `status='active'` ⇒ `activated_at IS NOT NULL`. Also make proposed policies immutable at the DB level (a trigger or role grants), because today only the application prevents editing `rules`/`created_by_id`. |
+| any | The nightly roster rebuild commits in batches of 100 workers, so a rebuild that fails midway leaves earlier batches refreshed. That is harmless; the next run repairs the rest. |
+| 4 | First-shot review outcomes have no transition rules. For example, `engaged` → `passed` → `shortlisted` is allowed, and moving a worker out of `engaged` makes them eligible for the panel again. The audit row records no previous outcome. Decide the rules alongside deriving `engaged` from real engagements. |
+| 4 | Candidates can be searched for a closed project, because nothing checks the project's status. |
+| any | Candidate scoring and first-shot selection score the whole eligible pool in Python per request. That is fine at the pilot's 5,000 profiles. Push scoring into SQL, or cache ranked pools per project, if the pool grows well beyond that. |
+| 5 | The SPA renders the first-shot panel in the same page layout as candidates, and no toggle can hide it (spec §7.8 `useFirstShot`). |
+| 4 | A first-shot `engaged` outcome is recorded by the PM; it is not derived from an actual engagement on the project. Consider setting it automatically when the PM engages that worker on the project. |
+| 4 | Concentration rollups (`first_shot_shown`, `first_shot_engaged`) read `first_shot_reviews`. |
+| any | The lock-order row gains roster refreshes. They are serialized per worker with a transaction-level advisory lock (`pg_advisory_xact_lock`), taken before any other lock in the refresh. |
 
 ## Implementation deviations from the spec (recorded as they happen)
 
@@ -82,3 +89,10 @@ Each item below must become a named task with a test in the plan listed.
 | 3A | `GET /workers/{id}/standing` (detail visibility) exists alongside `GET /workers/me/standing` | Spec §7.1 gives detail viewers standing factors |
 | 3A | Reactivation does not re-check profile gaps (location, languages, skills); first-time engagement does | FR-4.3's fast path for returning workers |
 | 3A | Reactivation prefill uses the same definition of past work as reactivation (signed, active or completed engagements); a worker whose only engagement is unsigned gets 404 no_prior_engagement from prefill | Prefill and reactivation must agree; before, prefill returned terms that reactivation then refused |
+| 3B | `roster_profiles.last_engaged_on` is a date (the latest engagement start), not `last_engaged_at` | Engagements carry start dates, not start times |
+| 3B | Roster status, tier and availability columns are plain strings | The roster is a projection and does not share passport's DB enum types |
+| 3B | "Last 12 months" means the last 365 days of engagement start dates | Simple, and stable across month lengths |
+| 3B | Candidates are paginated with an opaque cursor over the computed score order | Scores are computed per request; the cursor keeps keyset semantics over them |
+| 3B | The first-shot panel leaves out workers already `passed` or `engaged` for the project | The panel keeps surfacing new people instead of re-showing decided ones |
+| 3B | Candidates and the first-shot panel include only `profile_complete` workers | An invited worker cannot yet be engaged (FR-5.1) |
+| 3B | `last_12m` and `last_engaged_on` count only engagements whose start date has passed. Future signed engagements count in `total` only | Roster counters reflect work actually underway or done, not scheduled future starts |
