@@ -130,6 +130,19 @@ async def lock_skill_claim(session: AsyncSession, worker_id: UUID, skill_id: UUI
     return claim_id is not None
 
 
+async def standing_worker_ids(session: AsyncSession) -> list[UUID]:
+    """Workers whose standing is maintained: in the talent pool. Stable order
+    (by id): recalculate_all locks these rows one worker at a time, so a
+    concurrent policy-activation run and a nightly run must lock them in the
+    same order or they can deadlock."""
+    rows = await session.scalars(
+        select(Worker.id)
+        .where(Worker.status.in_((WorkerStatus.ACTIVE, WorkerStatus.DORMANT)))
+        .order_by(Worker.id)
+    )
+    return list(rows.all())
+
+
 async def verify_skill(session: AsyncSession, worker_id: UUID, skill_id: UUID) -> bool:
     """Marks a claim bonarda_verified (FR-2.2). True only if this call changed it."""
     claim = await session.scalar(

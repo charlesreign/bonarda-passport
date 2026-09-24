@@ -6,9 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.context import get_event_id
 from app.core.outbox.registry import HandlerRegistry
 from app.modules.engagements.schemas import FeedbackSubmitted
+from app.modules.governance.schemas import PolicyActivated
 from app.modules.governance.service import active_tiering
 from app.modules.standing.evidence import record_skill_evidence
-from app.modules.standing.recalculation import recalculate
+from app.modules.standing.recalculation import recalculate, recalculate_all
 
 
 def register(registry: HandlerRegistry) -> None:
@@ -35,3 +36,12 @@ def register(registry: HandlerRegistry) -> None:
         )
 
     registry.register(FeedbackSubmitted, "standing.record_skill_evidence", record_evidence)
+
+    async def recalculate_on_policy(session: AsyncSession, payload: dict[str, Any]) -> None:
+        if payload["kind"] != "tiering":
+            return
+        await recalculate_all(
+            session, policy=await active_tiering(session), trigger_event_id=get_event_id()
+        )
+
+    registry.register(PolicyActivated, "standing.recalculate_all", recalculate_on_policy)

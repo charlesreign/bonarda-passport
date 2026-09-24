@@ -11,6 +11,7 @@ from app.core.outbox.processing import process_event, purge_dispatched_events
 from app.modules.engagements.contracts import activate_due
 from app.modules.engagements.stuck import flag_stuck, retry_payroll_signals
 from app.modules.identity.grants import GrantService
+from app.modules.standing.service import recalculate_all_standing
 
 MAX_HANDLER_TRIES = 5
 DEAD_LETTER_KEY = "outbox:dead_letter"
@@ -55,3 +56,8 @@ async def flag_stuck_engagements(ctx: dict[str, Any]) -> int:
         flagged = await flag_stuck(session, settings)
         retried = await retry_payroll_signals(session, settings)
     return flagged + retried
+
+
+async def recalculate_standing(ctx: dict[str, Any]) -> int:
+    async with ctx["sessionmaker"]() as session, session.begin():
+        return await recalculate_all_standing(session)

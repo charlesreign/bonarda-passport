@@ -7,7 +7,14 @@ from app.core.outbox.writer import emit_event
 from app.core.time import utcnow
 from app.modules.engagements.service import standing_records
 from app.modules.governance.schemas import TieringPolicy
-from app.modules.passport.service import StandingTier, lock_standing_tier, set_standing_tier
+from app.modules.governance.service import active_tiering
+from app.modules.passport.service import (
+    StandingTier,
+    lock_standing_tier,
+    set_standing_tier,
+    standing_worker_ids,
+)
+from app.modules.standing.evidence import promote_skills
 from app.modules.standing.models import StandingChange
 from app.modules.standing.repository import StandingChangeRepository
 from app.modules.standing.rules import evaluate
@@ -61,3 +68,23 @@ async def recalculate(
         ),
     )
     return change
+
+
+async def recalculate_all(
+    session: AsyncSession, *, policy: TieringPolicy, trigger_event_id: UUID | None
+) -> int:
+    """Re-evaluates every worker in the pool and promotes skills whose
+    evidence meets the policy's threshold. Returns how many tiers changed."""
+    changed = 0
+    for worker_id in await standing_worker_ids(session):
+        if await recalculate(session, worker_id, policy=policy, trigger_event_id=trigger_event_id):
+            changed += 1
+    await promote_skills(session, policy.rules.skill_verification.min_distinct_reviewers)
+    return changed
+
+
+async def recalculate_all_standing(session: AsyncSession) -> int:
+    """Nightly: tiers follow the feedback window even when no event fires."""
+    return await recalculate_all(
+        session, policy=await active_tiering(session), trigger_event_id=None
+    )
