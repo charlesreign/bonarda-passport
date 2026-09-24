@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api, errorText } from "../api";
 import { homeFor, useAuth } from "../auth";
+import { Card, ErrorNote, Loading } from "../ui";
 
 /** Magic-link landing page: the token arrives in the URL fragment. */
 export default function Verify() {
@@ -25,14 +26,17 @@ export default function Verify() {
   }, [navigate, signIn]);
 
   return (
-    <div className="pad">
-      {error ? (
-        <p className="error">
-          {error} <a href="/login">Back to sign-in</a>
-        </p>
-      ) : (
-        <p className="muted">Signing you in…</p>
-      )}
+    <div style={{ maxWidth: 480, margin: "48px auto" }}>
+      <Card title={error ? "We couldn't sign you in" : "Signing you in…"}>
+        {error ? (
+          <div className="stack">
+            <ErrorNote error={error} />
+            <Link to="/login">Back to sign-in</Link>
+          </div>
+        ) : (
+          <Loading lines={2} />
+        )}
+      </Card>
     </div>
   );
 }

@@ -1,5 +1,6 @@
+import { ArrowsClockwise, CalendarBlank, Check, MapPin, PenNib, UserPlus, X } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
   ApiError,
   api,
@@ -9,7 +10,20 @@ import {
   type Standing,
   type WorkerView,
 } from "../api";
-import { ANSWER_LABEL, ErrorNote, Pill, Status, TierBadge, availabilityText, date } from "../ui";
+import {
+  ANSWER_LABEL,
+  Avatar,
+  ErrorNote,
+  InfoNote,
+  Loading,
+  SkillPill,
+  Status,
+  SuccessNote,
+  TierBadge,
+  availabilityText,
+  date,
+  useSkillNames,
+} from "../ui";
 
 const IN_FLIGHT = ["pending_signature", "awaiting_signature"];
 
@@ -33,8 +47,7 @@ function EngageForm({ worker, project }: { worker: WorkerView; project: Project 
     scope: prefill.data?.contract_terms.scope ?? `${project.name}: analysis work`,
     ...overrides,
   };
-  const set = (key: string) => (e: { target: { value: string } }) =>
-    setOverrides((o) => ({ ...o, [key]: e.target.value }));
+  const set = (key: string) => (e: { target: { value: string } }) => setOverrides((o) => ({ ...o, [key]: e.target.value }));
 
   const submit = useMutation({
     mutationFn: () => {
@@ -46,9 +59,7 @@ function EngageForm({ worker, project }: { worker: WorkerView; project: Project 
         work_mode: terms.work_mode,
         location: null,
         contract_terms: { scope: terms.scope, access_notes: null },
-        ...(reactivating
-          ? { prefilled_from_engagement_id: prefill.data!.prefilled_from_engagement_id }
-          : {}),
+        ...(reactivating ? { prefilled_from_engagement_id: prefill.data!.prefilled_from_engagement_id } : {}),
       };
       return reactivating
         ? api<Engagement>(`/workers/${worker.id}/reactivations`, {
@@ -59,61 +70,65 @@ function EngageForm({ worker, project }: { worker: WorkerView; project: Project 
         : api<Engagement>(`/workers/${worker.id}/engagements`, { method: "POST", body });
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["worker", worker.id] });
-      void queryClient.invalidateQueries({ queryKey: ["engagements", worker.id] });
-      void queryClient.invalidateQueries({ queryKey: ["candidates", project.id] });
-      void queryClient.invalidateQueries({ queryKey: ["first-shot", project.id] });
+      for (const key of [["worker", worker.id], ["engagements", worker.id], ["candidates", project.id], ["first-shot", project.id]])
+        void queryClient.invalidateQueries({ queryKey: key });
     },
   });
 
-  if (prefill.isLoading) return <p className="muted">Loading terms…</p>;
+  if (prefill.isLoading) return <Loading lines={2} />;
   if (!reactivating && !firstTime) return <ErrorNote error={prefill.error} />;
   return (
-    <div className="engage">
-      <h3>{reactivating ? "Reactivate" : "Engage for the first time"}</h3>
+    <section className="drawer-section" aria-labelledby="engage-heading">
+      <h2 id="engage-heading" className="row">
+        {reactivating ? <ArrowsClockwise size={20} aria-hidden="true" /> : <UserPlus size={20} aria-hidden="true" />}
+        {reactivating ? "Reactivate" : "Engage for the first time"}
+      </h2>
       {reactivating && (
-        <p className="muted small-text">
+        <p className="muted small-text top-gap">
           Terms prefilled from their last engagement
-          {prefill.data?.last_days_to_start != null &&
-            ` · last time-to-start ${prefill.data.last_days_to_start.toFixed(1)} days`}
-          .
+          {prefill.data?.last_days_to_start != null && ` · last time to start: ${prefill.data.last_days_to_start.toFixed(1)} days`}.
         </p>
       )}
       <div className="form-grid">
-        <label>
-          Start
+        <label className="field">
+          Start date
           <input type="date" value={terms.start_date} onChange={set("start_date")} />
         </label>
-        <label>
+        <label className="field">
           Day rate
-          <input value={terms.rate} onChange={set("rate")} />
+          <input inputMode="decimal" value={terms.rate} onChange={set("rate")} />
         </label>
-        <label>
+        <label className="field">
           Currency
           <input value={terms.currency} onChange={set("currency")} maxLength={3} />
         </label>
-        <label>
-          Mode
+        <label className="field">
+          Work mode
           <select value={terms.work_mode} onChange={set("work_mode")}>
-            <option value="remote">remote</option>
-            <option value="hybrid">hybrid</option>
-            <option value="onsite">onsite</option>
+            <option value="remote">Remote</option>
+            <option value="hybrid">Hybrid</option>
+            <option value="onsite">On site</option>
           </select>
         </label>
-        <label className="span-2">
+        <label className="field span-2">
           Scope
           <input value={terms.scope} onChange={set("scope")} />
         </label>
       </div>
-      <button onClick={() => submit.mutate()} disabled={submit.isPending || submit.isSuccess}>
-        {submit.isSuccess ? "Sent for signature ✓" : "Confirm and send contract"}
-      </button>
+      {submit.isSuccess ? (
+        <SuccessNote>Engagement recorded. The contract is on its way to {worker.full_name}.</SuccessNote>
+      ) : (
+        <button onClick={() => submit.mutate()} disabled={submit.isPending}>
+          {submit.isPending ? "Sending…" : "Confirm and send contract"}
+        </button>
+      )}
       <ErrorNote error={submit.error} />
-    </div>
+    </section>
   );
 }
 
 function FeedbackForm({ engagement, onDone }: { engagement: Engagement; onDone: () => void }) {
+  const noteId = useId();
   const [answers, setAnswers] = useState<Record<string, boolean>>({
     delivered_on_agreed_dates: true,
     handled_scope_changes_without_escalation: true,
@@ -129,7 +144,10 @@ function FeedbackForm({ engagement, onDone }: { engagement: Engagement; onDone: 
     onSuccess: onDone,
   });
   return (
-    <div className="inline-form">
+    <fieldset className="inline-form" style={{ border: 0 }}>
+      <legend className="small-text" style={{ fontWeight: 600 }}>
+        Feedback (all three questions are required)
+      </legend>
       {Object.keys(answers).map((key) => (
         <label key={key} className="check">
           <input
@@ -140,12 +158,15 @@ function FeedbackForm({ engagement, onDone }: { engagement: Engagement; onDone: 
           {ANSWER_LABEL[key]}
         </label>
       ))}
-      <textarea rows={2} placeholder="Optional note (the freelancer can read it)" value={text} onChange={(e) => setText(e.target.value)} />
+      <label className="field" htmlFor={noteId}>
+        Note <span className="hint">Optional. The freelancer can read it.</span>
+        <textarea id={noteId} rows={2} value={text} onChange={(e) => setText(e.target.value)} />
+      </label>
       <button className="small" onClick={() => submit.mutate()} disabled={submit.isPending}>
         Submit feedback
       </button>
       <ErrorNote error={submit.error} />
-    </div>
+    </fieldset>
   );
 }
 
@@ -166,29 +187,39 @@ function EngagementRow({ engagement, project }: { engagement: Engagement; projec
   });
   const mine = engagement.project_id === project.id;
   return (
-    <div className="engagement">
-      <div className="row between">
+    <article className="list-item">
+      <div className="row between wrap">
         <div>
-          <b>{engagement.contract_terms.scope}</b>
-          <p className="muted small-text">
-            {date(engagement.start_date)} – {date(engagement.end_date)} · {engagement.rate}{" "}
-            {engagement.currency} · {engagement.path.replace("_", " ")}
-          </p>
+          <strong>{engagement.contract_terms.scope}</strong>
+          <div className="meta">
+            <span>
+              <CalendarBlank size={16} aria-hidden="true" />
+              {date(engagement.start_date)} – {date(engagement.end_date)}
+            </span>
+            <span className="num">
+              {engagement.rate} {engagement.currency}
+            </span>
+            <span>{engagement.path.replace("_", " ")}</span>
+          </div>
         </div>
         <Status value={engagement.status} />
       </div>
       {mine && (
-        <div className="row wrap">
+        <div className="fs-actions">
           {engagement.status === "awaiting_signature" && (
-            <button className="small" onClick={() => sign.mutate()}>
+            <button className="small" onClick={() => sign.mutate()} disabled={sign.isPending}>
+              <PenNib size={16} aria-hidden="true" />
               Simulate freelancer signature
             </button>
           )}
           {engagement.status === "pending_signature" && (
-            <span className="muted small-text">Sending the contract…</span>
+            <span className="muted small-text" role="status">
+              Sending the contract…
+            </span>
           )}
           {engagement.status === "active" && (
-            <button className="small" onClick={() => complete.mutate()}>
+            <button className="small" onClick={() => complete.mutate()} disabled={complete.isPending}>
+              <Check size={16} aria-hidden="true" />
               Mark completed
             </button>
           )}
@@ -209,14 +240,13 @@ function EngagementRow({ engagement, project }: { engagement: Engagement; projec
         />
       )}
       {engagement.feedback && (
-        <p className="muted small-text">
-          Feedback:{" "}
-          {Object.values(engagement.feedback.structured_answers).filter(Boolean).length}/3 positive
+        <p className="muted small-text top-gap">
+          Feedback: {Object.values(engagement.feedback.structured_answers).filter(Boolean).length} of 3 positive
           {engagement.feedback.free_text ? ` · “${engagement.feedback.free_text}”` : ""}
         </p>
       )}
       <ErrorNote error={sign.error ?? complete.error} />
-    </div>
+    </article>
   );
 }
 
@@ -229,17 +259,44 @@ export default function WorkerPanel({
   project: Project;
   onClose: () => void;
 }) {
-  const worker = useQuery({
-    queryKey: ["worker", workerId],
-    queryFn: () => api<WorkerView>(`/workers/${workerId}`),
-  });
+  const titleId = useId();
+  const skillName = useSkillNames();
+  const dialogRef = useRef<HTMLElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
+    return () => opener?.focus();
+  }, []);
+
+  function onKeyDown(event: KeyboardEvent) {
+    if (event.key === "Escape") {
+      onClose();
+      return;
+    }
+    if (event.key !== "Tab" || !dialogRef.current) return;
+    const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])',
+    );
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first?.focus();
+    }
+  }
+
+  const worker = useQuery({ queryKey: ["worker", workerId], queryFn: () => api<WorkerView>(`/workers/${workerId}`) });
   const detail = worker.data?.view === "detail";
   const engagements = useQuery({
     queryKey: ["engagements", workerId],
     queryFn: () => api<Engagement[]>(`/workers/${workerId}/engagements`),
     enabled: detail,
-    refetchInterval: (query) =>
-      query.state.data?.some((e) => IN_FLIGHT.includes(e.status)) ? 2000 : false,
+    refetchInterval: (query) => (query.state.data?.some((e) => IN_FLIGHT.includes(e.status)) ? 2000 : false),
   });
   const standing = useQuery({
     queryKey: ["standing", workerId],
@@ -250,55 +307,87 @@ export default function WorkerPanel({
   const openEngagement = engagements.data?.some(
     (e) => e.project_id === project.id && !["completed", "cancelled"].includes(e.status),
   );
+
   return (
     <div className="drawer-backdrop" onClick={onClose}>
-      <aside className="drawer" onClick={(e) => e.stopPropagation()}>
-        <button className="ghost close" onClick={onClose}>
-          ✕
-        </button>
+      <aside
+        ref={dialogRef}
+        className="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={onKeyDown}
+      >
+        <div className="drawer-head">
+          {w ? (
+            <div className="person">
+              <Avatar name={w.full_name} large />
+              <div>
+                <h2 id={titleId}>{w.full_name}</h2>
+                <div className="meta">
+                  <span>
+                    <MapPin size={16} aria-hidden="true" />
+                    {w.base_location} · {w.data_region}
+                  </span>
+                  <span>{availabilityText(w.availability_status, w.available_from)}</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <h2 id={titleId}>Freelancer</h2>
+          )}
+          <button ref={closeRef} className="secondary icon-btn" onClick={onClose} aria-label="Close">
+            <X size={20} aria-hidden="true" />
+          </button>
+        </div>
+        {worker.isLoading && <Loading />}
         <ErrorNote error={worker.error} />
         {w && (
           <>
-            <h2>{w.full_name}</h2>
-            <p className="muted">
-              {w.base_location} · {w.data_region} ·{" "}
-              {availabilityText(w.availability_status, w.available_from)}
-            </p>
-            <div className="row">
+            <div className="row wrap">
               <TierBadge tier={w.standing_tier} />
-              <Pill>{w.view === "detail" ? "Detail view" : "Summary view"}</Pill>
+              <span className="pill">{detail ? "Detail view" : "Summary view"}</span>
             </div>
             <div className="chips top-gap">
               {w.skills.map((s) => (
-                <Pill key={s.skill_id} tone={s.verification_status === "bonarda_verified" ? "good" : "neutral"}>
-                  {s.slug}
-                  {s.verification_status === "bonarda_verified" ? " ✓" : ""}
-                </Pill>
+                <SkillPill key={s.skill_id} name={skillName(s.skill_id)} verified={s.verification_status === "bonarda_verified"} />
               ))}
             </div>
             {!detail && (
-              <p className="muted small-text top-gap">
-                History and feedback appear once you shortlist or engage this person on one of your
-                projects.
-              </p>
+              <div className="top-gap">
+                <InfoNote>
+                  History and feedback appear once you shortlist or engage this person on one of your projects.
+                </InfoNote>
+              </div>
             )}
             {standing.data && (
-              <p className="small-text top-gap">
-                Standing: {standing.data.factors.completed} completed ·{" "}
-                {standing.data.factors.distinct_reviewers} reviewers ·{" "}
-                {Math.round(standing.data.factors.positive_ratio * 100)}% positive (policy v
-                {standing.data.policy_version})
-              </p>
+              <dl className="stats top-gap">
+                <div className="stat">
+                  <dt>Completed</dt>
+                  <dd>{standing.data.factors.completed}</dd>
+                </div>
+                <div className="stat">
+                  <dt>Reviewers</dt>
+                  <dd>{standing.data.factors.distinct_reviewers}</dd>
+                </div>
+                <div className="stat">
+                  <dt>Positive</dt>
+                  <dd>{Math.round(standing.data.factors.positive_ratio * 100)}%</dd>
+                </div>
+              </dl>
             )}
             {!openEngagement && <EngageForm worker={w} project={project} />}
             {detail && (
-              <>
-                <h3>Engagements</h3>
-                {engagements.data?.length === 0 && <p className="muted">None yet.</p>}
-                {engagements.data?.map((e) => (
-                  <EngagementRow key={e.id} engagement={e} project={project} />
-                ))}
-              </>
+              <section className="drawer-section" aria-labelledby="eng-heading">
+                <h2 id="eng-heading">Engagements</h2>
+                {engagements.data?.length === 0 && <p className="muted top-gap">None yet.</p>}
+                <div className="top-gap">
+                  {engagements.data?.map((e) => (
+                    <EngagementRow key={e.id} engagement={e} project={project} />
+                  ))}
+                </div>
+              </section>
             )}
           </>
         )}

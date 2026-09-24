@@ -1,8 +1,31 @@
+import {
+  ArrowLeft,
+  Buildings,
+  CalendarBlank,
+  Globe,
+  MagnifyingGlass,
+  Sparkle,
+  UserCircleCheck,
+  UsersThree,
+} from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { api, type Candidate, type FirstShotItem, type Project } from "../api";
-import { Card, ErrorNote, Pill, Status, TierBadge, availabilityText, date, useSkillNames } from "../ui";
+import {
+  Avatar,
+  Card,
+  Empty,
+  ErrorNote,
+  Loading,
+  Pill,
+  SkillPill,
+  Status,
+  TierBadge,
+  availabilityText,
+  date,
+  useSkillNames,
+} from "../ui";
 import WorkerPanel from "./WorkerPanel";
 
 const PASS_REASONS = [
@@ -14,19 +37,24 @@ const PASS_REASONS = [
   "other",
 ];
 
-function ScoreBar({ candidate }: { candidate: Candidate }) {
-  const b = candidate.score_breakdown;
-  const parts: [string, number, string][] = [
-    ["verified", b.verified_skills.points, "Verified skills"],
-    ["self", b.self_reported_skills.points, "Self-reported skills"],
-    ["avail", b.availability.points, "Availability"],
-    ["tier", b.tier.points, "Tier (capped at 15%)"],
-  ];
+const SEGMENTS: [key: string, cls: string, label: string][] = [
+  ["verified_skills", "seg-verified", "Verified skills"],
+  ["self_reported_skills", "seg-self", "Self-reported skills"],
+  ["availability", "seg-avail", "Availability"],
+  ["tier", "seg-tier", "Tier (max 15%)"],
+];
+
+function Score({ candidate }: { candidate: Candidate }) {
+  const b = candidate.score_breakdown as unknown as Record<string, { points: number }>;
+  const summary = SEGMENTS.map(([key, , label]) => `${label} ${b[key].points.toFixed(2)}`).join(", ");
   return (
-    <div className="scorebar" title={parts.map(([, v, l]) => `${l}: ${v.toFixed(2)}`).join("\n")}>
-      {parts.map(([key, value]) => (
-        <span key={key} className={`seg seg-${key}`} style={{ width: `${value * 100}%` }} />
-      ))}
+    <div className="score">
+      <strong>{candidate.score.toFixed(2)}</strong>
+      <div className="scorebar" role="img" aria-label={`Score ${candidate.score.toFixed(2)}: ${summary}`} title={summary}>
+        {SEGMENTS.map(([key, cls]) => (
+          <span key={key} className={cls} style={{ width: `${b[key].points * 100}%` }} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -35,7 +63,7 @@ function FirstShot({ projectId, onOpen }: { projectId: string; onOpen: (id: stri
   const queryClient = useQueryClient();
   const [passing, setPassing] = useState<string | null>(null);
   const [reason, setReason] = useState(PASS_REASONS[0]);
-  const { data, error } = useQuery({
+  const { data, error, isLoading } = useQuery({
     queryKey: ["first-shot", projectId],
     queryFn: () => api<{ items: FirstShotItem[]; policy_version: number }>(`/projects/${projectId}/first-shot`),
   });
@@ -52,57 +80,87 @@ function FirstShot({ projectId, onOpen }: { projectId: string; onOpen: (id: stri
   });
   return (
     <Card
+      highlight
       title="First shot"
-      actions={<span className="muted">Qualified people you have not worked with much</span>}
+      icon={<Sparkle size={20} weight="fill" aria-hidden="true" />}
+      subtitle={data && `Matching policy v${data.policy_version}`}
     >
+      <p className="fs-intro">
+        <UserCircleCheck size={20} aria-hidden="true" />
+        Qualified for this project, with little recent work. They are shown to every PM on every
+        project, and tier never filters them out.
+      </p>
+      {isLoading && <Loading />}
       <ErrorNote error={error} />
-      {data?.items.length === 0 && <p className="muted">No one new qualifies right now.</p>}
-      {data?.items.map((item) => (
-        <div key={item.worker.worker_id} className="fs-item">
-          <div className="row between">
-            <button className="link" onClick={() => onOpen(item.worker.worker_id)}>
-              {item.worker.display_name}
-            </button>
-            <Status value={item.outcome} />
-          </div>
-          <p className="muted small-text">
-            <TierBadge tier={item.worker.standing_tier} /> · {item.worker.base_location} ·{" "}
-            {availabilityText(item.worker.availability_status, item.worker.available_from)} ·{" "}
-            {item.worker.engagements_total} past engagements
-          </p>
-          <div className="row wrap">
-            <button className="small" onClick={() => review.mutate({ workerId: item.worker.worker_id, outcome: "shortlisted" })}>
-              Shortlist
-            </button>
-            <button className="small ghost" onClick={() => review.mutate({ workerId: item.worker.worker_id, outcome: "contacted" })}>
-              Contacted
-            </button>
-            {passing === item.worker.worker_id ? (
-              <>
-                <select value={reason} onChange={(e) => setReason(e.target.value)}>
-                  {PASS_REASONS.map((r) => (
-                    <option key={r} value={r}>
-                      {r.replaceAll("_", " ")}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  className="small danger"
-                  onClick={() =>
-                    review.mutate({ workerId: item.worker.worker_id, outcome: "passed", reason_code: reason })
-                  }
-                >
-                  Confirm pass
-                </button>
-              </>
+      {data?.items.length === 0 && (
+        <Empty icon={<UsersThree size={36} aria-hidden="true" />}>No one new qualifies right now.</Empty>
+      )}
+      {data?.items.map((item) => {
+        const w = item.worker;
+        return (
+          <article key={w.worker_id} className="list-item">
+            <div className="row between">
+              <div className="person">
+                <Avatar name={w.display_name} />
+                <div>
+                  <button className="link" onClick={() => onOpen(w.worker_id)}>
+                    {w.display_name}
+                  </button>
+                  <div className="meta">
+                    <span>{w.base_location}</span>
+                    <span>{w.engagements_total} past engagements</span>
+                  </div>
+                </div>
+              </div>
+              <Status value={item.outcome} />
+            </div>
+            <div className="row wrap top-gap">
+              <TierBadge tier={w.standing_tier} />
+              <span className="small-text muted">{availabilityText(w.availability_status, w.available_from)}</span>
+            </div>
+            {passing === w.worker_id ? (
+              <div className="inline-form">
+                <label className="field">
+                  Reason for passing
+                  <select value={reason} onChange={(e) => setReason(e.target.value)}>
+                    {PASS_REASONS.map((r) => (
+                      <option key={r} value={r}>
+                        {r.replaceAll("_", " ")}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="row">
+                  <button
+                    className="danger small"
+                    onClick={() => review.mutate({ workerId: w.worker_id, outcome: "passed", reason_code: reason })}
+                  >
+                    Confirm pass
+                  </button>
+                  <button className="secondary small" onClick={() => setPassing(null)}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
             ) : (
-              <button className="small ghost" onClick={() => setPassing(item.worker.worker_id)}>
-                Pass…
-              </button>
+              <div className="fs-actions">
+                <button className="small" onClick={() => review.mutate({ workerId: w.worker_id, outcome: "shortlisted" })}>
+                  Shortlist
+                </button>
+                <button
+                  className="secondary small"
+                  onClick={() => review.mutate({ workerId: w.worker_id, outcome: "contacted" })}
+                >
+                  Contacted
+                </button>
+                <button className="ghost small" onClick={() => setPassing(w.worker_id)}>
+                  Pass…
+                </button>
+              </div>
             )}
-          </div>
-        </div>
-      ))}
+          </article>
+        );
+      })}
       <ErrorNote error={review.error} />
     </Card>
   );
@@ -113,99 +171,145 @@ export default function ProjectPage() {
   const skillName = useSkillNames();
   const [openWorker, setOpenWorker] = useState<string | null>(null);
   const [q, setQ] = useState("");
-  const project = useQuery({
-    queryKey: ["project", projectId],
-    queryFn: () => api<Project>(`/projects/${projectId}`),
-  });
+  const project = useQuery({ queryKey: ["project", projectId], queryFn: () => api<Project>(`/projects/${projectId}`) });
   const candidates = useQuery({
     queryKey: ["candidates", projectId, q],
     queryFn: () =>
-      api<{ items: Candidate[] }>(
-        `/projects/${projectId}/candidates?limit=25${q ? `&q=${encodeURIComponent(q)}` : ""}`,
-      ),
+      api<{ items: Candidate[] }>(`/projects/${projectId}/candidates?limit=25${q ? `&q=${encodeURIComponent(q)}` : ""}`),
   });
   const p = project.data;
   return (
-    <div className="stack">
+    <>
+      <Link to="/console" className="small-text" style={{ display: "inline-flex", gap: 6, alignItems: "center", marginBottom: 12 }}>
+        <ArrowLeft size={16} aria-hidden="true" /> All projects
+      </Link>
       <ErrorNote error={project.error} />
       {p && (
-        <div className="row between wrap">
+        <div className="page-head">
           <div>
+            <p className="eyebrow">Staffing</p>
             <h1>{p.name}</h1>
-            <p className="muted">
-              {p.client_name ?? "Internal"} · {p.data_region} · starts {date(p.starts_on)}
-            </p>
+            <div className="meta top-gap">
+              <span>
+                <Buildings size={16} aria-hidden="true" />
+                {p.client_name ?? "Internal"}
+              </span>
+              <span>
+                <Globe size={16} aria-hidden="true" />
+                {p.data_region}
+              </span>
+              <span>
+                <CalendarBlank size={16} aria-hidden="true" />
+                Starts {date(p.starts_on)}
+              </span>
+            </div>
           </div>
-          <div className="chips">
-            {p.required_skill_ids.map((id) => (
-              <Pill key={id}>{skillName(id)}</Pill>
-            ))}
+          <div>
+            <p className="small-text muted" style={{ marginBottom: 4 }}>
+              Required skills
+            </p>
+            <div className="chips">
+              {p.required_skill_ids.map((id) => (
+                <Pill key={id} tone="info">
+                  {skillName(id)}
+                </Pill>
+              ))}
+            </div>
           </div>
         </div>
       )}
       <div className="grid-staffing">
         <Card
           title="Candidates"
+          icon={<UsersThree size={20} aria-hidden="true" />}
+          subtitle="Ranked by skills, availability and tier. Past selection never adds points."
           actions={
-            <input
-              className="search"
-              placeholder="Search by name"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
+            <div className="search-field">
+              <MagnifyingGlass size={18} aria-hidden="true" />
+              <input
+                type="search"
+                aria-label="Search candidates by name"
+                placeholder="Search by name"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+            </div>
           }
         >
+          {candidates.isLoading && <Loading lines={5} />}
           <ErrorNote error={candidates.error} />
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Tier</th>
-                <th>Skills</th>
-                <th>Availability</th>
-                <th>Score</th>
-              </tr>
-            </thead>
-            <tbody>
-              {candidates.data?.items.map((c) => (
-                <tr key={c.worker.worker_id} onClick={() => setOpenWorker(c.worker.worker_id)} className="clickable">
-                  <td>
-                    <b>{c.worker.display_name}</b>
-                    <div className="muted small-text">
-                      {c.worker.base_location} · {c.worker.engagements_total} engagements
-                    </div>
-                  </td>
-                  <td>
-                    <TierBadge tier={c.worker.standing_tier} />
-                  </td>
-                  <td>
-                    {c.worker.verified_skill_ids.map((id) => (
-                      <Pill key={id} tone="good">
-                        {skillName(id)} ✓
-                      </Pill>
+          {candidates.data && candidates.data.items.length > 0 && (
+            <>
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th scope="col" className="col-name">Freelancer</th>
+                      <th scope="col">Tier</th>
+                      <th scope="col" className="col-skills">Skills</th>
+                      <th scope="col">Availability</th>
+                      <th scope="col">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {candidates.data.items.map((c) => (
+                      <tr key={c.worker.worker_id} className="clickable" onClick={() => setOpenWorker(c.worker.worker_id)}>
+                        <td>
+                          <div className="person">
+                            <Avatar name={c.worker.display_name} />
+                            <div>
+                              <button
+                                className="link"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenWorker(c.worker.worker_id);
+                                }}
+                              >
+                                {c.worker.display_name}
+                              </button>
+                              <div className="sub">
+                                {c.worker.base_location} · {c.worker.engagements_total} engagements
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td>
+                          <TierBadge tier={c.worker.standing_tier} />
+                        </td>
+                        <td className="col-skills">
+                          {c.worker.verified_skill_ids.map((id) => (
+                            <SkillPill key={id} name={skillName(id)} verified />
+                          ))}
+                          {c.worker.self_reported_skill_ids.map((id) => (
+                            <SkillPill key={id} name={skillName(id)} verified={false} />
+                          ))}
+                        </td>
+                        <td className="small-text">{availabilityText(c.worker.availability_status, c.worker.available_from)}</td>
+                        <td>
+                          <Score candidate={c} />
+                        </td>
+                      </tr>
                     ))}
-                    {c.worker.self_reported_skill_ids.map((id) => (
-                      <Pill key={id}>{skillName(id)}</Pill>
-                    ))}
-                  </td>
-                  <td className="small-text">
-                    {availabilityText(c.worker.availability_status, c.worker.available_from)}
-                  </td>
-                  <td>
-                    <b>{c.score.toFixed(2)}</b>
-                    <ScoreBar candidate={c} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {candidates.data?.items.length === 0 && <p className="muted">No candidates match.</p>}
+                  </tbody>
+                </table>
+              </div>
+              <div className="legend" aria-hidden="true">
+                {SEGMENTS.map(([key, cls, label]) => (
+                  <span key={key}>
+                    <i className={cls} />
+                    {label}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+          {candidates.data?.items.length === 0 && (
+            <Empty icon={<MagnifyingGlass size={36} aria-hidden="true" />}>No candidates match.</Empty>
+          )}
         </Card>
         <FirstShot projectId={projectId} onOpen={setOpenWorker} />
       </div>
-      {openWorker && p && (
-        <WorkerPanel workerId={openWorker} project={p} onClose={() => setOpenWorker(null)} />
-      )}
-    </div>
+      {openWorker && p && <WorkerPanel workerId={openWorker} project={p} onClose={() => setOpenWorker(null)} />}
+    </>
   );
 }

@@ -1,5 +1,18 @@
+import {
+  Briefcase,
+  CalendarBlank,
+  Check,
+  ClockCounterClockwise,
+  Flag,
+  Globe,
+  MapPin,
+  Scales,
+  ShieldCheck,
+  Translate,
+  X,
+} from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
   api,
   type Consent,
@@ -11,26 +24,31 @@ import {
 } from "../api";
 import {
   ANSWER_LABEL,
+  Avatar,
   Card,
+  Empty,
   ErrorNote,
-  Pill,
+  InfoNote,
+  Loading,
+  SkillPill,
   Status,
+  SuccessNote,
   TierBadge,
   availabilityText,
   date,
   dateTime,
+  labelFor,
+  useSkillNames,
 } from "../ui";
 
-function DisputeButton({ targetType, targetId }: { targetType: string; targetId: string }) {
+function DisputeButton({ targetType, targetId, label }: { targetType: string; targetId: string; label: string }) {
   const queryClient = useQueryClient();
+  const fieldId = useId();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
   const file = useMutation({
     mutationFn: () =>
-      api("/disputes", {
-        method: "POST",
-        body: { target_type: targetType, target_id: targetId, reason },
-      }),
+      api("/disputes", { method: "POST", body: { target_type: targetType, target_id: targetId, reason } }),
     onSuccess: () => {
       setOpen(false);
       setReason("");
@@ -39,23 +57,26 @@ function DisputeButton({ targetType, targetId }: { targetType: string; targetId:
   });
   if (!open)
     return (
-      <button className="ghost small" onClick={() => setOpen(true)}>
-        Dispute
-      </button>
+      <>
+        <button className="ghost small" onClick={() => setOpen(true)} aria-label={`Dispute ${label}`}>
+          <Flag size={16} aria-hidden="true" />
+          Dispute
+        </button>
+        {file.isSuccess && <SuccessNote>Dispute filed. People Ops will review it.</SuccessNote>}
+      </>
     );
   return (
-    <div className="inline-form">
-      <textarea
-        rows={2}
-        placeholder="What is wrong with this record? (at least 10 characters)"
-        value={reason}
-        onChange={(e) => setReason(e.target.value)}
-      />
+    <div className="inline-form" style={{ width: "100%" }}>
+      <label className="field" htmlFor={fieldId}>
+        What is wrong with this {label}?
+        <span className="hint">At least 10 characters. People Ops reply within 30 days.</span>
+        <textarea id={fieldId} rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />
+      </label>
       <div className="row">
         <button className="small" disabled={reason.trim().length < 10 || file.isPending} onClick={() => file.mutate()}>
           File dispute
         </button>
-        <button className="ghost small" onClick={() => setOpen(false)}>
+        <button className="secondary small" onClick={() => setOpen(false)}>
           Cancel
         </button>
       </div>
@@ -65,6 +86,7 @@ function DisputeButton({ targetType, targetId }: { targetType: string; targetId:
 }
 
 function Profile({ me }: { me: WorkerView }) {
+  const skillName = useSkillNames();
   const queryClient = useQueryClient();
   const [status, setStatus] = useState(me.availability_status);
   const [from, setFrom] = useState(me.available_from ?? "");
@@ -72,173 +94,207 @@ function Profile({ me }: { me: WorkerView }) {
     mutationFn: () =>
       api("/workers/me", {
         method: "PATCH",
-        body: {
-          availability_status: status,
-          available_from: status === "available_from" ? from || null : null,
-        },
+        body: { availability_status: status, available_from: status === "available_from" ? from || null : null },
       }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["me-worker"] }),
   });
   return (
-    <Card title={me.full_name} actions={<TierBadge tier={me.standing_tier} />}>
-      <p className="muted">
-        {me.base_location ?? "No location"} · {me.data_region} · {me.languages?.join(", ")} ·{" "}
-        {me.email}
-      </p>
+    <Card title="Profile" icon={<Briefcase size={20} aria-hidden="true" />}>
+      <div className="meta">
+        <span>
+          <MapPin size={16} aria-hidden="true" />
+          {me.base_location ?? "No location"}
+        </span>
+        <span>
+          <Globe size={16} aria-hidden="true" />
+          Region {me.data_region}
+        </span>
+        <span>
+          <Translate size={16} aria-hidden="true" />
+          {me.languages?.join(", ").toUpperCase()}
+        </span>
+      </div>
+      <h3>Skills</h3>
       <div className="chips">
         {me.skills.map((s) => (
-          <Pill key={s.skill_id} tone={s.verification_status === "bonarda_verified" ? "good" : "neutral"}>
-            {s.slug}
-            {s.verification_status === "bonarda_verified" ? " ✓ verified" : ""}
-          </Pill>
+          <SkillPill key={s.skill_id} name={skillName(s.skill_id)} verified={s.verification_status === "bonarda_verified"} />
         ))}
       </div>
-      <div className="row wrap top-gap">
-        <label>
-          Availability
+      <h3>Availability</h3>
+      <div className="row wrap" style={{ alignItems: "flex-end" }}>
+        <label className="field">
+          Status
           <select value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="available">Available now</option>
-            <option value="available_from">Available from…</option>
+            <option value="available_from">Available from a date</option>
             <option value="unavailable">Unavailable</option>
           </select>
         </label>
         {status === "available_from" && (
-          <label>
+          <label className="field">
             From
             <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
           </label>
         )}
-        <button className="small" onClick={() => save.mutate()} disabled={save.isPending}>
-          Save
+        <button className="secondary" onClick={() => save.mutate()} disabled={save.isPending}>
+          {save.isPending ? "Saving…" : "Save"}
         </button>
-        <span className="muted">
-          Now: {availabilityText(me.availability_status, me.available_from)}
-        </span>
       </div>
+      <p className="muted small-text top-gap">
+        Project managers see: {availabilityText(me.availability_status, me.available_from)}
+      </p>
       <ErrorNote error={save.error} />
     </Card>
   );
 }
 
 function StandingCard() {
-  const { data, error } = useQuery({
+  const { data, error, isLoading } = useQuery({
     queryKey: ["my-standing"],
     queryFn: () => api<Standing>("/workers/me/standing"),
   });
-  if (error) return <ErrorNote error={error} />;
-  if (!data) return null;
   return (
     <Card
       title="My standing"
-      actions={<span className="muted">Policy v{data.policy_version} · last {data.window_months} months</span>}
+      icon={<ShieldCheck size={20} aria-hidden="true" />}
+      subtitle={data && `Policy v${data.policy_version} · feedback from the last ${data.window_months} months`}
     >
-      <div className="standing">
-        <div>
-          <TierBadge tier={data.tier} />
+      {isLoading && <Loading />}
+      <ErrorNote error={error} />
+      {data && (
+        <>
+          <div className="standing-hero">
+            <TierBadge tier={data.tier} large />
+            <dl className="stats">
+              <div className="stat">
+                <dt>Completed</dt>
+                <dd>{data.factors.completed}</dd>
+              </div>
+              <div className="stat">
+                <dt>Reviewers</dt>
+                <dd>{data.factors.distinct_reviewers}</dd>
+              </div>
+              <div className="stat">
+                <dt>Positive</dt>
+                <dd>{Math.round(data.factors.positive_ratio * 100)}%</dd>
+              </div>
+            </dl>
+          </div>
           {data.evaluated_tier !== data.tier && (
-            <p className="muted small-text">
-              The rules currently give <b>{data.evaluated_tier}</b>; your tier was set by People Ops.
-            </p>
+            <div className="top-gap">
+              <InfoNote>
+                The rules currently give {data.evaluated_tier.replace("_", " ")}; People Ops set your
+                tier by hand.
+              </InfoNote>
+            </div>
           )}
-        </div>
-        <dl className="factors">
+          <h3>How tiers are earned</h3>
           <div>
-            <dt>Completed engagements</dt>
-            <dd>{data.factors.completed}</dd>
+            <table className="table compact">
+              <thead>
+                <tr>
+                  <th scope="col">Tier</th>
+                  <th scope="col">Completed</th>
+                  <th scope="col">Reviewers</th>
+                  <th scope="col">Positive</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.tiers.map((t) => (
+                  <tr key={t.tier}>
+                    <td>
+                      <TierBadge tier={t.tier} short />
+                    </td>
+                    <td className="num">≥ {t.min_completed}</td>
+                    <td className="num">≥ {t.min_distinct_reviewers}</td>
+                    <td className="num">≥ {Math.round(t.min_positive_ratio * 100)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <div>
-            <dt>Distinct reviewers</dt>
-            <dd>{data.factors.distinct_reviewers}</dd>
-          </div>
-          <div>
-            <dt>Positive answers</dt>
-            <dd>{Math.round(data.factors.positive_ratio * 100)}%</dd>
-          </div>
-        </dl>
-      </div>
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Tier</th>
-            <th>Completed</th>
-            <th>Reviewers</th>
-            <th>Positive</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.tiers.map((t) => (
-            <tr key={t.tier}>
-              <td>
-                <TierBadge tier={t.tier} />
-              </td>
-              <td>≥ {t.min_completed}</td>
-              <td>≥ {t.min_distinct_reviewers}</td>
-              <td>≥ {Math.round(t.min_positive_ratio * 100)}%</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <h3>History</h3>
-      {data.history.length === 0 && <p className="muted">No changes yet.</p>}
-      <ul className="timeline">
-        {data.history.map((c) => (
-          <li key={c.id}>
-            <span>
-              {dateTime(c.occurred_at)}: <TierBadge tier={c.previous_tier} /> →{" "}
-              <TierBadge tier={c.new_tier} />{" "}
-              {c.automated ? (
-                <span className="muted">rules, policy v{c.policy_version}</span>
-              ) : (
-                <span className="muted">People Ops: “{c.override_reason}”</span>
-              )}
-            </span>
-            <DisputeButton targetType="standing_change" targetId={c.id} />
-          </li>
-        ))}
-      </ul>
+          <h3>History</h3>
+          {data.history.length === 0 ? (
+            <p className="muted">No changes yet.</p>
+          ) : (
+            <ul className="timeline">
+              {data.history.map((c) => (
+                <li key={c.id}>
+                  <div>
+                    <div className="row wrap">
+                      <TierBadge tier={c.previous_tier} />
+                      <span aria-label="to">→</span>
+                      <TierBadge tier={c.new_tier} />
+                    </div>
+                    <p className="muted small-text">
+                      {dateTime(c.occurred_at)} ·{" "}
+                      {c.automated ? `rules, policy v${c.policy_version}` : `People Ops: “${c.override_reason}”`}
+                    </p>
+                  </div>
+                  <DisputeButton targetType="standing_change" targetId={c.id} label="standing change" />
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
     </Card>
   );
 }
 
 function Engagements({ workerId }: { workerId: string }) {
-  const { data, error } = useQuery({
+  const { data, error, isLoading } = useQuery({
     queryKey: ["engagements", workerId],
     queryFn: () => api<Engagement[]>(`/workers/${workerId}/engagements`),
   });
   return (
-    <Card title="My engagements">
+    <Card title="Engagements" icon={<ClockCounterClockwise size={20} aria-hidden="true" />}>
+      {isLoading && <Loading />}
       <ErrorNote error={error} />
-      {data?.length === 0 && <p className="muted">No engagements yet.</p>}
+      {data?.length === 0 && (
+        <Empty icon={<Briefcase size={40} aria-hidden="true" />}>No engagements yet.</Empty>
+      )}
       {data?.map((e) => (
-        <div key={e.id} className="engagement">
-          <div className="row between">
+        <article key={e.id} className="list-item">
+          <div className="row between wrap">
             <div>
-              <b>{e.contract_terms.scope}</b>
-              <p className="muted">
-                {date(e.start_date)} – {date(e.end_date)} · {e.rate} {e.currency}/day ·{" "}
-                {e.work_mode}
-                {e.path === "reactivation" ? " · reactivation" : ""}
-              </p>
+              <strong>{e.contract_terms.scope}</strong>
+              <div className="meta">
+                <span>
+                  <CalendarBlank size={16} aria-hidden="true" />
+                  {date(e.start_date)} – {date(e.end_date)}
+                </span>
+                <span className="num">
+                  {e.rate} {e.currency}/day
+                </span>
+                <span>{e.work_mode}</span>
+                {e.path === "reactivation" && <span>Reactivation</span>}
+              </div>
             </div>
             <div className="row">
               <Status value={e.status} />
-              <DisputeButton targetType="engagement" targetId={e.id} />
+              <DisputeButton targetType="engagement" targetId={e.id} label="engagement" />
             </div>
           </div>
           {e.feedback && (
-            <div className="feedback">
-              <ul>
+            <div className="feedback panel-soft">
+              <ul className="answers">
                 {Object.entries(e.feedback.structured_answers).map(([k, v]) => (
                   <li key={k}>
-                    {v ? "✓" : "✗"} {ANSWER_LABEL[k] ?? k}
+                    {v ? (
+                      <Check size={16} weight="bold" className="yes" aria-label="Yes" />
+                    ) : (
+                      <X size={16} weight="bold" className="no" aria-label="No" />
+                    )}
+                    {ANSWER_LABEL[k] ?? k}
                   </li>
                 ))}
               </ul>
-              {e.feedback.free_text && <p className="quote">“{e.feedback.free_text}”</p>}
-              <DisputeButton targetType="feedback" targetId={e.feedback.id} />
+              {e.feedback.free_text && <p className="quote">{e.feedback.free_text}</p>}
+              <DisputeButton targetType="feedback" targetId={e.feedback.id} label="feedback" />
             </div>
           )}
-        </div>
+        </article>
       ))}
     </Card>
   );
@@ -246,10 +302,7 @@ function Engagements({ workerId }: { workerId: string }) {
 
 function Consents() {
   const queryClient = useQueryClient();
-  const { data } = useQuery({
-    queryKey: ["consents"],
-    queryFn: () => api<Consent[]>("/workers/me/consents"),
-  });
+  const { data } = useQuery({ queryKey: ["consents"], queryFn: () => api<Consent[]>("/workers/me/consents") });
   const toggle = useMutation({
     mutationFn: (c: Consent) =>
       api(`/workers/me/consents/${c.purpose}`, { method: "PUT", body: { granted: !c.granted } }),
@@ -260,7 +313,7 @@ function Consents() {
     external_prefill: "Prefill my profile from external credentials",
   };
   return (
-    <Card title="Consents">
+    <Card title="Privacy" subtitle="You can change these at any time.">
       {data?.map((c) => (
         <label key={c.purpose} className="check">
           <input type="checkbox" checked={c.granted} onChange={() => toggle.mutate(c)} />
@@ -273,47 +326,59 @@ function Consents() {
 }
 
 function MyDisputes() {
-  const { data } = useQuery({
-    queryKey: ["my-disputes"],
-    queryFn: () => api<Page<Dispute>>("/disputes"),
-  });
+  const { data } = useQuery({ queryKey: ["my-disputes"], queryFn: () => api<Page<Dispute>>("/disputes") });
   return (
-    <Card title="My disputes">
-      {data?.items.length === 0 && <p className="muted">None filed.</p>}
+    <Card title="My disputes" icon={<Scales size={20} aria-hidden="true" />}>
+      {data?.items.length === 0 && <p className="muted">None filed. Use “Dispute” on any record you think is wrong.</p>}
       {data?.items.map((d) => (
-        <div key={d.id} className="dispute">
-          <div className="row between">
-            <span>
-              {d.target_type.replace("_", " ")} · filed {date(d.created_at)} · due {date(d.due_at)}
-            </span>
+        <article key={d.id} className="list-item">
+          <div className="row between wrap">
+            <strong>{labelFor(d.target_type.replace("_", "-"))}</strong>
             <Status value={d.resolution ?? d.status} />
           </div>
-          <p className="quote">“{d.reason}”</p>
-          {d.resolution_notes && <p className="muted">People Ops: {d.resolution_notes}</p>}
-        </div>
+          <p className="muted small-text">
+            Filed {date(d.created_at)} · reply due {date(d.due_at)}
+          </p>
+          <p className="quote">{d.reason}</p>
+          {d.resolution_notes && (
+            <p className="small-text">
+              <strong>People Ops:</strong> {d.resolution_notes}
+            </p>
+          )}
+        </article>
       ))}
     </Card>
   );
 }
 
 export default function Passport() {
-  const { data: me, error } = useQuery({
-    queryKey: ["me-worker"],
-    queryFn: () => api<WorkerView>("/workers/me"),
-  });
+  const { data: me, error } = useQuery({ queryKey: ["me-worker"], queryFn: () => api<WorkerView>("/workers/me") });
   if (error) return <ErrorNote error={error} />;
-  if (!me) return <p className="muted pad">Loading…</p>;
+  if (!me) return <Loading lines={4} />;
   return (
-    <div className="grid-2">
-      <div className="stack">
-        <Profile me={me} />
-        <Engagements workerId={me.id} />
+    <>
+      <div className="page-head">
+        <div className="person">
+          <Avatar name={me.full_name} large />
+          <div>
+            <p className="eyebrow">My passport</p>
+            <h1>{me.full_name}</h1>
+            <p>{availabilityText(me.availability_status, me.available_from)}</p>
+          </div>
+        </div>
+        <TierBadge tier={me.standing_tier} large />
       </div>
-      <div className="stack">
-        <StandingCard />
-        <MyDisputes />
-        <Consents />
+      <div className="grid-2">
+        <div className="stack">
+          <Profile me={me} />
+          <Engagements workerId={me.id} />
+        </div>
+        <div className="stack">
+          <StandingCard />
+          <MyDisputes />
+          <Consents />
+        </div>
       </div>
-    </div>
+    </>
   );
 }

@@ -1,9 +1,10 @@
+import { ArrowsClockwise, EnvelopeSimple, Scales, UsersThree } from "@phosphor-icons/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type Role } from "../api";
 import { homeFor, useAuth } from "../auth";
-import { Card, ErrorNote } from "../ui";
+import { Avatar, Card, ErrorNote, InfoNote, Loading, SuccessNote } from "../ui";
 
 interface DemoAccount {
   id: string;
@@ -18,6 +19,24 @@ const ROLE_ORDER: [Role, string][] = [
   ["worker", "Freelancers"],
   ["admin", "Admin"],
   ["finance", "Finance"],
+];
+
+const PILLARS = [
+  {
+    icon: ArrowsClockwise,
+    title: "Reactivate in minutes",
+    text: "Terms prefill from the last engagement. One confirmation sends the contract.",
+  },
+  {
+    icon: UsersThree,
+    title: "A fair first shot",
+    text: "Every staffing page shows qualified people who have had little recent work.",
+  },
+  {
+    icon: Scales,
+    title: "Standing you can explain",
+    text: "Tiers come from versioned rules. Freelancers see why, and can dispute any record.",
+  },
 ];
 
 export default function Login() {
@@ -53,42 +72,67 @@ export default function Login() {
 
   return (
     <div className="login">
-      <div className="hero">
-        <h1>One passport for every engagement.</h1>
-        <p>
-          Freelancers keep one record across projects. Project managers reactivate people they
-          trust in minutes, and meet qualified people they have not worked with yet.
-        </p>
-      </div>
+      <section className="hero">
+        <div>
+          <p className="eyebrow">Bonarda Works</p>
+          <h1>One passport for every engagement.</h1>
+          <p className="lead">
+            Freelancers keep one record across projects. Project managers bring back people they
+            trust, and meet qualified people they have not worked with yet.
+          </p>
+        </div>
+        <ul className="pillars">
+          {PILLARS.map(({ icon: Icon, title, text }) => (
+            <li key={title}>
+              <Icon size={24} weight="duotone" aria-hidden="true" />
+              <div>
+                <strong>{title}</strong>
+                <span>{text}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+
       <div className="login-grid">
-        <Card title="Freelancer sign-in">
+        <Card
+          title="Freelancer sign-in"
+          subtitle="No password: we email you a single-use link."
+          icon={<EnvelopeSimple size={20} aria-hidden="true" />}
+        >
           <form onSubmit={submit} className="stack">
-            <label>
-              Email
+            <label className="field" htmlFor="email">
+              Email address
               <input
+                id="email"
                 type="email"
+                autoComplete="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="kofi@example.com"
               />
             </label>
-            <button disabled={magicLink.isPending}>Email me a sign-in link</button>
+            <button disabled={magicLink.isPending}>
+              {magicLink.isPending ? "Sending…" : "Email me a sign-in link"}
+            </button>
             {magicLink.isSuccess && (
-              <p className="ok">
+              <SuccessNote>
                 If that address has a passport, a link is on its way. In the demo, open{" "}
                 <a href="http://localhost:8025" target="_blank" rel="noreferrer">
                   Mailpit
                 </a>
                 .
-              </p>
+              </SuccessNote>
             )}
             <ErrorNote error={magicLink.error} />
           </form>
         </Card>
-        <Card title="Demo accounts">
+
+        <Card title="Demo accounts" subtitle="Sign in as anyone in the seeded dataset.">
+          {accounts.isLoading && <Loading />}
           {accounts.isError && (
-            <p className="muted">Demo sign-in is off. Staff sign in through the company IdP.</p>
+            <InfoNote>Demo sign-in is off. Staff sign in through the company identity provider.</InfoNote>
           )}
           {accounts.data &&
             ROLE_ORDER.map(([role, label]) => {
@@ -97,15 +141,17 @@ export default function Login() {
               return (
                 <div key={role} className="demo-group">
                   <h3>{label}</h3>
-                  <div className="chips">
+                  <div className="account-grid">
                     {group.map((a) => (
                       <button
                         key={a.id}
-                        className="chip"
+                        className="account-chip"
                         onClick={() => demoLogin.mutate(a.id)}
-                        title={a.email}
+                        disabled={demoLogin.isPending}
+                        aria-label={`Sign in as ${a.name} (${label})`}
                       >
-                        {a.name}
+                        <Avatar name={a.name.includes("@") ? a.name.split("@")[0] : a.name} />
+                        {a.name.includes("@") ? a.name.split("@")[0] : a.name}
                       </button>
                     ))}
                   </div>
