@@ -71,6 +71,16 @@ class SkillClaimRepository:
             )
         )
 
+    async def get_for_update(self, worker_id: UUID, skill_id: UUID) -> SkillClaim | None:
+        # Lock the claim before checking verification_status: a concurrent
+        # verification (skills.py ClaimService.remove) must not land between
+        # the check and the delete.
+        return await self.session.scalar(
+            select(SkillClaim)
+            .where(SkillClaim.worker_id == worker_id, SkillClaim.skill_id == skill_id)
+            .with_for_update()
+        )
+
     def add(self, claim: SkillClaim) -> SkillClaim:
         self.session.add(claim)
         return claim

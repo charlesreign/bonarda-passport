@@ -9,6 +9,12 @@ from app.modules.engagements.enums import OPEN_STATUSES, EngagementStatus
 from app.modules.engagements.models import Engagement, Feedback, Project, ProjectStaff
 from app.modules.identity.service import active_pm_ids
 
+_HISTORY_STATUSES = (
+    EngagementStatus.SIGNED,
+    EngagementStatus.ACTIVE,
+    EngagementStatus.COMPLETED,
+)
+
 
 class ProjectRepository:
     def __init__(self, session: AsyncSession) -> None:
@@ -126,12 +132,13 @@ class EngagementRepository:
         )
 
     async def has_history(self, worker_id: UUID) -> bool:
+        """Work that has actually happened: a signed contract or later (FR-5.3)."""
         return bool(
             await self.session.scalar(
                 select(
                     exists().where(
                         Engagement.worker_id == worker_id,
-                        Engagement.status != EngagementStatus.CANCELLED,
+                        Engagement.status.in_(_HISTORY_STATUSES),
                     )
                 )
             )
@@ -147,11 +154,14 @@ class EngagementRepository:
         )
 
     async def latest_for_worker(self, worker_id: UUID) -> Engagement | None:
+        """The latest engagement counting as history (FR-5.3), matching
+        `has_history` so prefill and reactivation agree on what "prior
+        engagement" means."""
         return await self.session.scalar(
             select(Engagement)
             .where(
                 Engagement.worker_id == worker_id,
-                Engagement.status != EngagementStatus.CANCELLED,
+                Engagement.status.in_(_HISTORY_STATUSES),
             )
             .order_by(Engagement.start_date.desc(), Engagement.created_at.desc())
             .limit(1)

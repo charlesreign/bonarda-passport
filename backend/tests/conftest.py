@@ -23,7 +23,7 @@ from app.core.enums import UserRole
 from app.main import create_app
 from app.modules.integrations.service import FakeEsignAdapter, FakePayrollAdapter
 from app.wiring import HandlerDeps, build_registry
-from tests.support import RecordingMailer, alembic_config, drain_outbox
+from tests.support import RecordingMailer, alembic_config, drain_outbox, seed_policies
 
 
 @pytest.fixture(scope="session")
@@ -70,6 +70,7 @@ async def db_engine(database_url: str) -> AsyncIterator[AsyncEngine]:
     tables = ", ".join(t.name for t in Base.metadata.sorted_tables)
     async with engine.begin() as conn:
         await conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+        await seed_policies(conn)
     await engine.dispose()
 
 

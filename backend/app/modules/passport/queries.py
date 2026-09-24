@@ -8,8 +8,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.outbox.writer import emit_event
-from app.modules.passport.enums import ConsentPurpose, OnboardingState, WorkerStatus
-from app.modules.passport.models import Skill, Worker
+from app.modules.passport.enums import (
+    ConsentPurpose,
+    OnboardingState,
+    StandingTier,
+    VerificationStatus,
+    WorkerStatus,
+)
+from app.modules.passport.models import Skill, SkillClaim, Worker
 from app.modules.passport.repository import (
     ConsentRepository,
     SkillClaimRepository,
@@ -94,3 +100,64 @@ async def claimed_skill_ids(session: AsyncSession, worker_id: UUID) -> set[UUID]
         claim.skill_id
         for claim, _ in await SkillClaimRepository(session).list_for_worker(worker_id)
     }
+
+
+async def lock_standing_tier(session: AsyncSession, worker_id: UUID) -> StandingTier | None:
+    """Row-locks the worker so concurrent recalculations of one worker serialize.
+    Uses FOR NO KEY UPDATE, not plain FOR UPDATE: a child insert (e.g. into
+    skill_evidence) takes a FOR KEY SHARE lock on this row for its FK check.
+    FOR NO KEY UPDATE still conflicts with itself, so recalculations of one
+    worker still serialize, but it does not conflict with FOR KEY SHARE, so it
+    can't deadlock against a concurrent handler that locks a child row first
+    and then inserts (which needs FOR KEY SHARE here) while recalculate_all
+    still holds this lock waiting on that same child row."""
+    return await session.scalar(
+        select(Worker.standing_tier).where(Worker.id == worker_id).with_for_update(key_share=True)
+    )
+
+
+async def current_standing_tier(session: AsyncSession, worker_id: UUID) -> StandingTier | None:
+    return await session.scalar(select(Worker.standing_tier).where(Worker.id == worker_id))
+
+
+async def set_standing_tier(session: AsyncSession, worker_id: UUID, tier: StandingTier) -> None:
+    worker = await WorkerRepository(session).get(worker_id)
+    if worker is not None:
+        worker.standing_tier = tier
+
+
+async def lock_skill_claim(session: AsyncSession, worker_id: UUID, skill_id: UUID) -> bool:
+    """Row-locks the claim so concurrent evidence recording for one (worker,
+    skill) serializes. Returns whether the claim exists."""
+    claim_id = await session.scalar(
+        select(SkillClaim.id)
+        .where(SkillClaim.worker_id == worker_id, SkillClaim.skill_id == skill_id)
+        .with_for_update()
+    )
+    return claim_id is not None
+
+
+async def standing_worker_ids(session: AsyncSession) -> list[UUID]:
+    """Workers whose standing is maintained: in the talent pool. Stable order
+    (by id): recalculate_all locks these rows one worker at a time, so a
+    concurrent policy-activation run and a nightly run must lock them in the
+    same order or they can deadlock."""
+    rows = await session.scalars(
+        select(Worker.id)
+        .where(Worker.status.in_((WorkerStatus.ACTIVE, WorkerStatus.DORMANT)))
+        .order_by(Worker.id)
+    )
+    return list(rows.all())
+
+
+async def verify_skill(session: AsyncSession, worker_id: UUID, skill_id: UUID) -> bool:
+    """Marks a claim bonarda_verified (FR-2.2). True only if this call changed it."""
+    claim = await session.scalar(
+        select(SkillClaim)
+        .where(SkillClaim.worker_id == worker_id, SkillClaim.skill_id == skill_id)
+        .with_for_update()
+    )
+    if claim is None or claim.verification_status is VerificationStatus.BONARDA_VERIFIED:
+        return False
+    claim.verification_status = VerificationStatus.BONARDA_VERIFIED
+    return True

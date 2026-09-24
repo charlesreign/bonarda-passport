@@ -75,8 +75,9 @@ class EngagementService:
         readiness = await engagement_readiness(self.session, worker_id)
         if readiness is None:
             raise NotFound("Worker not found", code="worker_not_found")
-        if not readiness.onboarding_complete or readiness.gaps:
-            missing = ", ".join(readiness.gaps) or "onboarding"
+        blocking_gaps = readiness.gaps if path is EngagementPath.FIRST_TIME else []
+        if not readiness.onboarding_complete or blocking_gaps:
+            missing = ", ".join(blocking_gaps) or "onboarding"
             raise Conflict(f"Worker profile incomplete: {missing}", code="worker_not_ready")
         region = await worker_region(self.session, worker_id)
         if region is None or not (

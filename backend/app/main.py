@@ -14,11 +14,13 @@ from app.core.logging import configure_logging
 from app.core.mail import Mailer
 from app.core.middleware import CorrelationIdMiddleware
 from app.modules.engagements.router import router as engagements_router
+from app.modules.governance.router import router as governance_router
 from app.modules.identity.oidc import AuthlibOidcProvider
 from app.modules.identity.router import router as identity_router
 from app.modules.identity.service import VisibilityPolicy
 from app.modules.integrations.service import build_mailer
 from app.modules.passport.router import router as passport_router
+from app.modules.standing.router import router as standing_router
 from app.wiring import visibility_sources
 
 
@@ -59,4 +61,6 @@ def create_app(
     app.include_router(identity_router)
     app.include_router(passport_router)
     app.include_router(engagements_router)
+    app.include_router(governance_router)
+    app.include_router(standing_router)
     return app
