@@ -57,7 +57,7 @@ Each item below must become a named task with a test in the plan listed.
 | any | Skill verification and tier recalculation each take locks in a fixed order, and future code that touches them must keep it: workers are locked `FOR NO KEY UPDATE`, in id order; skill claims are locked `FOR UPDATE`, sorted by skill id. |
 | 4 | Add DB invariants for policies: `status='active'` ⇒ `activated_at IS NOT NULL`. Also make proposed policies immutable at the DB level (a trigger or role grants), because today only the application prevents editing `rules`/`created_by_id`. |
 | any | The nightly roster rebuild commits in batches of 100 workers, so a rebuild that fails midway leaves earlier batches refreshed. That is harmless; the next run repairs the rest. |
-| 4 | First-shot review outcomes have no transition rules. For example, `engaged` → `passed` → `shortlisted` is allowed, and moving a worker out of `engaged` makes them eligible for the panel again. The audit row records no previous outcome. Decide the rules alongside deriving `engaged` from real engagements. |
+| 4 | First-shot review outcomes have no transition rules. For example, `engaged` → `passed` → `shortlisted` is allowed, and moving a worker out of `engaged` makes them eligible for the panel again. The audit row records the previous outcome. Decide the rules alongside deriving `engaged` from real engagements, before `first_shot_engaged` rollups; closed projects' panels must also be skipped. |
 | 4 | Candidates can be searched for a closed project, because nothing checks the project's status. |
 | any | Candidate scoring and first-shot selection score the whole eligible pool in Python per request. That is fine at the pilot's 5,000 profiles. Push scoring into SQL, or cache ranked pools per project, if the pool grows well beyond that. |
 | 5 | The SPA renders the first-shot panel in the same page layout as candidates, and no toggle can hide it (spec §7.8 `useFirstShot`). |
@@ -66,7 +66,6 @@ Each item below must become a named task with a test in the plan listed.
 | any | The lock-order row gains roster refreshes. They are serialized per worker with a transaction-level advisory lock (`pg_advisory_xact_lock`), taken before any other lock in the refresh. |
 | any | The candidate cursor has no `policy_version`, so a matching-policy activation mid-walk can skip or repeat candidates. Add the version and reject a mismatch. |
 | any | PM visibility calls `list_staffed_by` once per source; share the lookup. |
-| 4 | First-shot review outcomes have no transition rules. Plan 4 must settle them before `first_shot_engaged` rollups, and must also skip closed projects' panels. |
 
 ## Implementation deviations from the spec (recorded as they happen)
 
