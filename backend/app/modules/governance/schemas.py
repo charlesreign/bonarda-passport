@@ -140,3 +140,24 @@ class PolicyActivated(DomainEvent):
     kind: PolicyKind
     version: int
     previous_version: int | None
+
+
+class AuditEntryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    occurred_at: datetime
+    actor_id: UUID | None
+    actor_role: str | None
+    action: str
+    target_type: str
+    target_id: UUID
+    before: dict[str, Any] | None
+    after: dict[str, Any] | None
+    reason: str | None
+    correlation_id: str | None
+
+
+class AuditLogPage(BaseModel):
+    items: list[AuditEntryRead]
+    next_cursor: str | None
