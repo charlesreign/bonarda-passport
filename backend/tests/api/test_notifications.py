@@ -3,15 +3,19 @@ from datetime import timedelta
 from uuid import UUID
 
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.enums import AccountStatus, UserRole
+from app.core.outbox.models import OutboxEvent
 from app.core.time import utcnow
 from app.modules.engagements.contracts import activate_due
 from app.modules.engagements.enums import EngagementStatus
-from app.modules.engagements.notifications import notify_feedback_due
+from app.modules.engagements.notifications import notify_engagement_confirmed, notify_feedback_due
+from app.modules.engagements.stuck import retry_payroll_signals
 from app.modules.governance.service import active_tiering
+from app.modules.integrations.service import FakePayrollAdapter
 from app.modules.passport.enums import WorkerType
 from app.modules.passport.models import Worker
 from app.modules.standing.recalculation import recalculate
@@ -68,6 +72,60 @@ async def test_a_worker_without_an_account_gets_no_mail_and_no_error(
     await _start_today(session, worker.id, project.id)
     await drain()
 
+    assert mailer.sent == []
+
+
+async def test_a_payroll_retry_signals_payroll_without_remailing_the_worker(
+    session: AsyncSession,
+    settings: Settings,
+    drain: Drain,
+    mailer: RecordingMailer,
+    payroll: FakePayrollAdapter,
+) -> None:
+    """Guards the F1 fix: a retry job re-run while a payroll signal stays
+    lost must not re-mail "engagement started" every 15 minutes."""
+    worker, _ = await make_worker(session, email="kofi@example.com")
+    project = await make_project(session)
+    engagement = await make_engagement(
+        session, worker_id=worker.id, project_id=project.id, status=EngagementStatus.ACTIVE
+    )
+    engagement.billable_start_at = utcnow() - timedelta(minutes=31)
+    await session.commit()
+    # The worker's one legitimate "engagement started" mail, as real
+    # activation would have sent it.
+    assert await notify_engagement_confirmed(session, mailer, engagement.id) is True
+    assert len(mailer.sent) == 1
+
+    assert await retry_payroll_signals(session, settings) == 1
+    await session.commit()
+    requested = (
+        await session.scalars(
+            select(OutboxEvent).where(
+                OutboxEvent.event_type == "engagements.payroll_signal_requested"
+            )
+        )
+    ).one()
+    assert requested.aggregate_id == engagement.id
+    await drain()
+
+    assert len(mailer.sent) == 1
+    await session.refresh(engagement)
+    assert engagement.payroll_signaled_at is not None
+    assert list(payroll.activations) == [engagement.id]
+
+
+async def test_notify_engagement_confirmed_sends_nothing_once_completed(
+    session: AsyncSession, mailer: RecordingMailer
+) -> None:
+    worker, _ = await make_worker(session)
+    project = await make_project(session)
+    engagement = await make_engagement(
+        session, worker_id=worker.id, project_id=project.id, status=EngagementStatus.COMPLETED
+    )
+
+    sent = await notify_engagement_confirmed(session, mailer, engagement.id)
+
+    assert sent is False
     assert mailer.sent == []
 
 

@@ -48,8 +48,11 @@ class StandingExplanation(BaseModel):
 
     worker_id: UUID
     tier: StandingTier
-    # The tier the active policy gives today; differs from `tier` until the
-    # recalculation handler or the nightly run records the change.
+    # The tier the active policy gives today. Normally differs from `tier`
+    # only until the recalculation handler or the nightly run records the
+    # change; under a People Ops override it keeps differing until the
+    # rules' own verdict moves to (or past) the overridden tier, since
+    # recalculation leaves the override alone until then.
     evaluated_tier: StandingTier
     policy_version: int
     window_months: int

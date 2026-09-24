@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.i18n import t
 from app.core.mail import Mailer
+from app.modules.engagements.enums import EngagementStatus
 from app.modules.engagements.repository import EngagementRepository, ProjectRepository
 from app.modules.identity.service import account_contact, active_pm_ids, worker_contact
 from app.modules.passport.service import worker_name
@@ -15,9 +16,12 @@ from app.modules.passport.service import worker_name
 async def notify_engagement_confirmed(
     session: AsyncSession, mailer: Mailer, engagement_id: UUID
 ) -> bool:
-    """To the worker once their engagement is active. False if nobody was told."""
+    """To the worker once their engagement is active. False if nobody was
+    told, including when the engagement has since moved past ACTIVE (a
+    payroll-signal retry re-runs the payroll handler, not this one, but this
+    guard keeps the handler itself safe against any late/duplicate call)."""
     engagement = await EngagementRepository(session).get(engagement_id)
-    if engagement is None:
+    if engagement is None or engagement.status is not EngagementStatus.ACTIVE:
         return False
     contact = await worker_contact(session, engagement.worker_id)
     project = await ProjectRepository(session).get(engagement.project_id)

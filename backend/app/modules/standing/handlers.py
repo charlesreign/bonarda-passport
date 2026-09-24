@@ -62,8 +62,9 @@ def register(registry: HandlerRegistry, *, mailer: Mailer) -> None:
             feedback_id = await engagement_feedback_id(session, target_id)
         else:
             return
+        dispute_id = UUID(payload["aggregate_id"])
         if feedback_id is None or not await exclude_feedback(
-            session, feedback_id, reason="dispute_upheld"
+            session, feedback_id, reason="dispute_upheld", dispute_id=dispute_id
         ):
             return
         await recalculate(

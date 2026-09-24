@@ -15,6 +15,7 @@ from app.modules.engagements.schemas import (
     EngagementCancelled,
     EngagementCompleted,
     EngagementCreated,
+    PayrollSignalRequested,
 )
 from app.modules.identity.schemas import AccessRevoked
 from app.modules.integrations.service import EsignAdapter, PayrollAdapter
@@ -41,6 +42,7 @@ def register(
     registry.register(EngagementCreated, "engagements.send_contract", send)
     registry.register(ContractDispatchRequested, "engagements.resend_contract", send)
     registry.register(EngagementActivated, "engagements.signal_payroll", pay)
+    registry.register(PayrollSignalRequested, "engagements.retry_payroll_signal", pay)
     registry.register(EngagementActivated, "engagements.sync_worker_status_on_activation", sync)
     registry.register(EngagementCancelled, "engagements.sync_worker_status_on_cancellation", sync)
     registry.register(EngagementCompleted, "engagements.sync_worker_status_on_completion", sync)

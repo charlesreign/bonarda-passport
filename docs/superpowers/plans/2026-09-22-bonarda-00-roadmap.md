@@ -43,7 +43,7 @@ Each item below must become a named task with a test in the plan listed.
 | pre-live (real adapters) | Adapter call timeouts; the engagement row lock is held across the external e-sign/payroll call. |
 | 4B | `send_contract` retries into dead-letter when the worker account is gone; cancel the engagement instead. |
 | any | Reactivation replay ignores body differences (same key, different terms returns the original); consider 422 on mismatch. |
-| any | Payroll-signal recovery measures its grace period from `billable_start_at`, not from activation. An engagement signed early is activated by the hourly job up to ~1 h after midnight UTC, so the next 15-min run can re-emit `EngagementActivated` while the original is still in the outbox: harmless (the handler is idempotent) but it writes a spurious `engagement.payroll_signal_retried` audit row and warning. Key recovery off the activation time. |
+| any | Payroll-signal recovery measures its grace period from `billable_start_at`, not from activation. An engagement signed early is activated by the hourly job up to ~1 h after midnight UTC, so the next 15-min run can find the original signal still in the outbox and emit `PayrollSignalRequested` again — harmless, since that event is handled only by the payroll signal handler, not by `EngagementActivated`'s mail handlers — but it writes a spurious `engagement.payroll_signal_retried` audit row and warning. Key recovery off the activation time. |
 | 4B | Concentration and retention policy kinds have no rules schema yet; proposing one answers 400 `policy_kind_not_supported`. |
 | any | `recalculate_all` re-evaluates every worker in one transaction; batch it if the pool grows well past the pilot's 5,000 profiles. The run also holds a `FOR NO KEY UPDATE` lock on every pool worker until it commits, so a tiering activation during working hours delays worker profile edits, status changes and feedback recalculations for the length of the run; batch commits per group of workers (recalculate is idempotent). |
 | any | Skill verification never reverses. Raising the policy threshold does not un-verify skills already verified. |
@@ -61,6 +61,7 @@ Each item below must become a named task with a test in the plan listed.
 | 4B | PMs with detail visibility cannot yet see a worker's dispute status (spec §7.1 lists "disputes status" at the detail level); only People Ops and the worker read disputes. |
 | 4B | Retention must anonymize `disputes.reason` and `resolution_notes` six years after resolution (spec §6.6). |
 | any | The lock-order row gains feedback: the dispute-outcome handler locks the feedback row (`FOR UPDATE`) before its worker (`FOR NO KEY UPDATE`). |
+| any | An override holds while the rules' verdict equals the `evaluated_tier` recorded with it. If the verdict rises to the overridden tier and later falls back, recalculation never records the first move, so the override silently holds again; People Ops can re-override. Record or clear the override when the verdict reaches the current tier if this matters. |
 
 ## Implementation deviations from the spec (recorded as they happen)
 

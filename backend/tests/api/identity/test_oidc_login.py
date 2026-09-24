@@ -310,6 +310,35 @@ async def test_role_change_at_login_revokes_other_sessions(
     assert stale.json()["code"] == "session_revoked"
 
 
+async def test_role_change_at_login_keeps_its_own_new_session_usable(
+    client: AsyncClient, session: AsyncSession, idp: FakeOidcProvider
+) -> None:
+    """Guards the `marker_at = now - 1s` logic in `oidc_login.py`: the
+    revocation marker must precede the session this same login issues, or
+    the login would revoke itself."""
+    await make_user(session, role=UserRole.PM, email="ama@bonarda.works", oidc_subject="kc-ama")
+    idp.claims = IdTokenClaims(
+        subject="kc-ama",
+        email="ama@bonarda.works",
+        amr=["otp"],
+        acr=None,
+        groups=["bonarda-finance"],
+    )
+    state = await _login(client)
+
+    callback = await client.get("/api/v1/auth/oidc/callback", params={"code": "c", "state": state})
+    assert callback.status_code == 302
+
+    refreshed = await client.post("/api/v1/auth/refresh")
+    assert refreshed.status_code == 200
+    token = refreshed.json()["access_token"]
+
+    me = await client.get("/api/v1/me", headers={"Authorization": f"Bearer {token}"})
+
+    assert me.status_code == 200
+    assert me.json()["role"] == "finance"
+
+
 async def test_completing_sign_in_writes_the_audit_row(
     session: AsyncSession, redis: fake_aioredis.FakeRedis, settings: Settings
 ) -> None:

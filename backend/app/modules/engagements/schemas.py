@@ -167,6 +167,14 @@ class EngagementCancelled(DomainEvent):
     project_id: UUID
 
 
+class PayrollSignalRequested(DomainEvent):
+    """Emitted only by the payroll-signal retry job (never by activation), so
+    a retry never re-triggers the worker/PM mail handlers that listen on
+    `EngagementActivated`."""
+
+    event_type: ClassVar[str] = "engagements.payroll_signal_requested"
+
+
 class CompletionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

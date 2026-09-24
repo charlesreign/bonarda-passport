@@ -77,13 +77,18 @@ class FeedbackService:
         return engagement, feedback
 
 
-async def exclude_feedback(session: AsyncSession, feedback_id: UUID, *, reason: str) -> bool:
+async def exclude_feedback(
+    session: AsyncSession, feedback_id: UUID, *, reason: str, dispute_id: UUID | None = None
+) -> bool:
     """Spec §2.2 #8: an upheld dispute stops the record counting toward
     standing. True only if this call changed it."""
     feedback = await EngagementRepository(session).feedback_for_update(feedback_id)
     if feedback is None or feedback.excluded_from_standing:
         return False
     feedback.excluded_from_standing = True
+    after: dict[str, object] = {"excluded_from_standing": True}
+    if dispute_id is not None:
+        after["dispute_id"] = str(dispute_id)
     await write_audit(
         session,
         actor=None,
@@ -91,7 +96,7 @@ async def exclude_feedback(session: AsyncSession, feedback_id: UUID, *, reason: 
         target_type="engagement",
         target_id=feedback.engagement_id,
         before={"excluded_from_standing": False},
-        after={"excluded_from_standing": True},
+        after=after,
         reason=reason,
     )
     return True

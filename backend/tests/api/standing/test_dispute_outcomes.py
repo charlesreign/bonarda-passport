@@ -61,7 +61,7 @@ async def _decide(
     rated: Rated,
     target: tuple[str, UUID],
     resolution: str,
-) -> None:
+) -> UUID:
     target_type, target_id = target
     filed = await client.post(
         "/api/v1/disputes",
@@ -73,13 +73,15 @@ async def _decide(
         headers=bearer(settings, rated.account),
     )
     assert filed.status_code == 201, filed.json()
+    dispute_id = UUID(filed.json()["id"])
     ops = await make_user(session, role=UserRole.PEOPLE_OPS)
     decided = await client.patch(
-        f"/api/v1/disputes/{filed.json()['id']}",
+        f"/api/v1/disputes/{dispute_id}",
         json={"resolution": resolution, "resolution_notes": "Reviewed with the project PM."},
         headers=bearer(settings, ops),
     )
     assert decided.status_code == 200, decided.json()
+    return dispute_id
 
 
 async def _change_count(session: AsyncSession) -> int:
@@ -91,7 +93,9 @@ async def test_an_upheld_feedback_dispute_stops_it_counting(
 ) -> None:
     rated = await _rated_worker(session)
 
-    await _decide(client, session, settings, rated, ("feedback", rated.feedback.id), "upheld")
+    dispute_id = await _decide(
+        client, session, settings, rated, ("feedback", rated.feedback.id), "upheld"
+    )
     await drain()
 
     await session.refresh(rated.feedback)
@@ -114,6 +118,7 @@ async def test_an_upheld_feedback_dispute_stops_it_counting(
         )
     ).one()
     assert (audit.target_id, audit.reason) == (rated.engagement.id, "dispute_upheld")
+    assert audit.after["dispute_id"] == str(dispute_id)
 
 
 async def test_a_rejected_dispute_changes_nothing(
