@@ -3,6 +3,7 @@
 import base64
 import binascii
 import json
+import math
 from dataclasses import dataclass
 from datetime import date
 from uuid import UUID
@@ -61,8 +62,18 @@ def _encode(breakdown: ScoreBreakdown, profile: RosterProfile) -> str:
 def _decode(cursor: str) -> tuple[float, str]:
     try:
         data = json.loads(base64.urlsafe_b64decode(cursor.encode()))
-        return float(data["s"]), str(UUID(data["w"]))
-    except (binascii.Error, ValueError, KeyError, TypeError) as exc:
+        if not isinstance(data, dict):
+            raise ValueError("cursor must decode to an object")
+        worker_id = data["w"]
+        total = data["s"]
+        if not isinstance(worker_id, str):
+            raise ValueError("worker id must be a string")
+        if isinstance(total, bool) or not isinstance(total, int | float):
+            raise ValueError("score must be numeric")
+        if not math.isfinite(total):
+            raise ValueError("score must be finite")
+        return float(total), str(UUID(worker_id))
+    except (binascii.Error, ValueError, KeyError) as exc:
         raise BadRequest("Invalid cursor", code="invalid_cursor") from exc
 
 

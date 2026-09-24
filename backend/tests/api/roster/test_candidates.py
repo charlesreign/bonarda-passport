@@ -1,6 +1,10 @@
+import base64
+import json
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
+from uuid import uuid4
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +33,13 @@ Drain = Callable[[], Awaitable[None]]
 
 def _url(project_id: object) -> str:
     return f"/api/v1/projects/{project_id}/candidates"
+
+
+def _cursor(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode()
+
+
+_A_UUID = str(uuid4())
 
 
 async def _skill(session: AsyncSession) -> Skill:
@@ -186,3 +197,27 @@ async def test_bad_cursor_unstaffed_pm_and_other_roles(
     assert (bad.status_code, bad.json()["code"]) == (400, "invalid_cursor")
     assert (unstaffed.status_code, unstaffed.json()["code"]) == (404, "project_not_found")
     assert people_ops.status_code == 403
+
+
+@pytest.mark.parametrize(
+    "cursor",
+    [
+        "not-a-cursor",
+        _cursor(json.dumps({"s": 0, "w": 1}).encode()),
+        _cursor(json.dumps({"s": "NaN", "w": _A_UUID}).encode()),
+        _cursor(f'{{"s":NaN,"w":"{_A_UUID}"}}'.encode()),
+        _cursor(json.dumps([]).encode()),
+        _cursor(json.dumps({"w": _A_UUID}).encode()),
+    ],
+)
+async def test_malformed_cursors_are_rejected(
+    client: AsyncClient, session: AsyncSession, settings: Settings, cursor: str
+) -> None:
+    pm = await make_user(session, role=UserRole.PM)
+    project = await make_project(session, staff=[pm])
+
+    response = await client.get(
+        _url(project.id), params={"cursor": cursor}, headers=bearer(settings, pm)
+    )
+
+    assert (response.status_code, response.json()["code"]) == (400, "invalid_cursor")
