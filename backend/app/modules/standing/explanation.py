@@ -6,7 +6,7 @@ from app.core.errors import NotFound
 from app.core.time import utcnow
 from app.modules.engagements.service import standing_records
 from app.modules.governance.service import active_tiering, policy_versions
-from app.modules.passport.service import current_standing_tier
+from app.modules.passport.service import StandingTier, current_standing_tier
 from app.modules.standing.repository import StandingChangeRepository
 from app.modules.standing.rules import evaluate
 from app.modules.standing.schemas import (
@@ -31,6 +31,7 @@ async def standing_explanation(session: AsyncSession, worker_id: UUID) -> Standi
     return StandingExplanation(
         worker_id=worker_id,
         tier=tier,
+        evaluated_tier=StandingTier(evaluation.tier),
         policy_version=policy.version,
         window_months=policy.rules.window_months,
         tiers=policy.rules.tiers,

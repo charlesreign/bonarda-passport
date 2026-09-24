@@ -50,6 +50,7 @@ async def test_worker_sees_tier_factors_thresholds_and_history(
     assert body["factors"]["completed"] == 1
     assert body["factors"]["distinct_reviewers"] == 1
     assert body["factors"]["positive_ratio"] == 1.0
+    assert body["evaluated_tier"] == "tier_1"
     (change,) = body["history"]
     assert (change["previous_tier"], change["new_tier"], change["policy_version"]) == (
         "unrated",
@@ -112,3 +113,20 @@ async def test_a_new_worker_is_unrated_with_empty_history(
     ).json()
 
     assert (body["tier"], body["history"], body["factors"]["completed"]) == ("unrated", [], 0)
+
+
+async def test_the_evaluated_tier_shows_a_pending_change(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    pm = await make_user(session, role=UserRole.PM)
+    worker, account = await make_ready_worker(session)
+    engagement = await make_engagement(
+        session, worker_id=worker.id, project_id=(await make_project(session)).id
+    )
+    await make_feedback(session, engagement_id=engagement.id, reviewer_id=pm.id)
+
+    body = (
+        await client.get("/api/v1/workers/me/standing", headers=bearer(settings, account))
+    ).json()
+
+    assert (body["tier"], body["evaluated_tier"]) == ("unrated", "tier_1")

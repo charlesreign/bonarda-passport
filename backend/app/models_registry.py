@@ -7,6 +7,7 @@ from app.modules.engagements import models as engagements_models
 from app.modules.governance import models as governance_models
 from app.modules.identity import models as identity_models
 from app.modules.passport import models as passport_models
+from app.modules.roster import models as roster_models
 from app.modules.standing import models as standing_models
 
 __all__ = [
@@ -16,5 +17,6 @@ __all__ = [
     "identity_models",
     "outbox_models",
     "passport_models",
+    "roster_models",
     "standing_models",
 ]

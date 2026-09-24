@@ -26,6 +26,7 @@ from app.modules.identity.tokens import issue_access_token
 from app.modules.integrations.service import sign_payload
 from app.modules.passport.enums import OnboardingState, WorkerStatus, WorkerType
 from app.modules.passport.models import Skill, SkillClaim, Worker
+from app.modules.roster.service import rebuild_all
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
@@ -121,9 +122,13 @@ async def make_project(
     data_region: str = "GH",
     name: str = "Project Volta",
     required_skill_ids: list[UUID] | None = None,
+    starts_on: date | None = None,
 ) -> Project:
     project = Project(
-        name=name, data_region=data_region, required_skill_ids=required_skill_ids or []
+        name=name,
+        data_region=data_region,
+        required_skill_ids=required_skill_ids or [],
+        starts_on=starts_on,
     )
     session.add(project)
     await session.flush()
@@ -275,6 +280,12 @@ POSITIVE_ANSWERS = {
     "handled_scope_changes_without_escalation": True,
     "would_reengage": True,
 }
+
+
+async def refresh_roster(session: AsyncSession) -> None:
+    """Rebuilds every roster row, as the nightly job does. rebuild_all
+    commits per batch itself, so no commit is needed here."""
+    await rebuild_all(session)
 
 
 async def make_feedback(

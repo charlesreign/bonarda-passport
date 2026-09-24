@@ -62,7 +62,11 @@ bonarda-passport/
 │   │   │   │   ├── recalculation.py, evidence.py, explanation.py
 │   │   │   │   ├── handlers.py, router.py
 │   │   │   │   └── service.py
-│   │   │   ├── roster/                    # + scoring.py, first_shot.py (pure functions)
+│   │   │   ├── roster/                    # read-model, scoring, candidates, first-shot (Plan 3B)
+│   │   │   │   ├── enums.py, models.py, repository.py, schemas.py
+│   │   │   │   ├── refresh.py, scoring.py, candidates.py, first_shot.py, visibility.py
+│   │   │   │   ├── handlers.py, router.py
+│   │   │   │   └── service.py
 │   │   │   └── integrations/
 │   │   │       ├── esign.py               # EsignAdapter protocol + FakeEsignAdapter (never signs by itself)
 │   │   │       ├── payroll.py             # PayrollAdapter protocol + FakePayrollAdapter

@@ -11,6 +11,7 @@ from app.modules.passport.enums import (
     WorkerType,
 )
 from app.modules.passport.queries import (
+    all_worker_ids,
     claimed_skill_ids,
     current_standing_tier,
     engagement_readiness,
@@ -20,6 +21,7 @@ from app.modules.passport.queries import (
     mark_worker_active,
     mark_worker_dormant,
     profile_gaps,
+    roster_snapshot,
     set_standing_tier,
     standing_worker_ids,
     verify_skill,
@@ -35,6 +37,7 @@ __all__ = [
     "VerificationStatus",
     "WorkerStatus",
     "WorkerType",
+    "all_worker_ids",
     "claimed_skill_ids",
     "current_standing_tier",
     "engagement_readiness",
@@ -44,6 +47,7 @@ __all__ = [
     "mark_worker_active",
     "mark_worker_dormant",
     "profile_gaps",
+    "roster_snapshot",
     "set_standing_tier",
     "standing_worker_ids",
     "verify_skill",
