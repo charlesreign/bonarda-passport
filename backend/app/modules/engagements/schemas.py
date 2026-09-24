@@ -59,6 +59,7 @@ class ContractTerms(BaseModel):
 class FeedbackRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    id: UUID
     structured_answers: dict[str, bool]
     free_text: str | None
     skill_ids_demonstrated: list[UUID]

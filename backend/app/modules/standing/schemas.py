@@ -33,6 +33,7 @@ class StandingFactors(BaseModel):
 
 
 class StandingChangeRead(BaseModel):
+    id: UUID
     previous_tier: StandingTier
     new_tier: StandingTier
     factors: dict[str, Any]

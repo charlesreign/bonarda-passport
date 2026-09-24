@@ -43,6 +43,7 @@ async def standing_explanation(session: AsyncSession, worker_id: UUID) -> Standi
         ),
         history=[
             StandingChangeRead(
+                id=c.id,
                 previous_tier=c.previous_tier,
                 new_tier=c.new_tier,
                 factors=c.contributing_factors,

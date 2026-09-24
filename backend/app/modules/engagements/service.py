@@ -4,6 +4,7 @@ from app.modules.engagements.enums import EngagementPath, EngagementStatus, Proj
 from app.modules.engagements.queries import (
     engagement_activity,
     engagement_worker_id,
+    feedback_worker_id,
     staffed_project,
     staffed_project_ids,
     standing_records,
@@ -17,6 +18,7 @@ __all__ = [
     "WorkMode",
     "engagement_activity",
     "engagement_worker_id",
+    "feedback_worker_id",
     "project_relationship",
     "staffed_project",
     "staffed_project_ids",

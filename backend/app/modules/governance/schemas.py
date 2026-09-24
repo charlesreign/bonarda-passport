@@ -5,7 +5,13 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.outbox.events import DomainEvent
-from app.modules.governance.enums import PolicyKind, PolicyStatus
+from app.modules.governance.enums import (
+    DisputeResolution,
+    DisputeStatus,
+    DisputeTargetType,
+    PolicyKind,
+    PolicyStatus,
+)
 
 # Tier names are strings here so governance stays independent of passport;
 # they match passport's StandingTier values.
@@ -161,3 +167,61 @@ class AuditEntryRead(BaseModel):
 class AuditLogPage(BaseModel):
     items: list[AuditEntryRead]
     next_cursor: str | None
+
+
+class DisputeCreate(BaseModel):
+    """The worker is the caller; a body never names a worker (spec §7.1)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    target_type: DisputeTargetType
+    target_id: UUID
+    reason: str = Field(min_length=10, max_length=2000)
+
+
+class DisputeResolve(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    resolution: DisputeResolution
+    resolution_notes: str = Field(min_length=10, max_length=2000)
+
+
+class DisputeRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    worker_id: UUID
+    target_type: DisputeTargetType
+    target_id: UUID
+    reason: str
+    status: DisputeStatus
+    resolution: DisputeResolution | None
+    resolution_notes: str | None
+    resolver_id: UUID | None
+    resolved_at: datetime | None
+    due_at: datetime
+    created_at: datetime
+
+
+class DisputePage(BaseModel):
+    items: list[DisputeRead]
+    next_cursor: str | None
+
+
+class DisputeFiled(DomainEvent):
+    """aggregate_id is the dispute. No reason text: it is personal data."""
+
+    event_type: ClassVar[str] = "governance.dispute_filed"
+    worker_id: UUID
+    target_type: DisputeTargetType
+    target_id: UUID
+
+
+class DisputeResolved(DomainEvent):
+    """aggregate_id is the dispute. No notes text: handlers read the row."""
+
+    event_type: ClassVar[str] = "governance.dispute_resolved"
+    worker_id: UUID
+    target_type: DisputeTargetType
+    target_id: UUID
+    resolution: DisputeResolution
