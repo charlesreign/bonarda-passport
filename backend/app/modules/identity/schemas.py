@@ -76,6 +76,12 @@ class GrantCreated(DomainEvent):
     expires_at: datetime
 
 
+class GrantRevoke(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=10, max_length=500)
+
+
 class ScimOperation(BaseModel):
     op: str
     path: str | None = None

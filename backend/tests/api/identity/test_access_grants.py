@@ -1,6 +1,7 @@
 from datetime import timedelta
 from uuid import UUID, uuid4
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +14,8 @@ from app.core.time import utcnow
 from app.modules.identity.grants import GrantService
 from app.modules.identity.models import AccessGrant
 from tests.support import bearer, make_user, make_worker
+
+REVOKE_REASON = "The cover period ended early."
 
 
 def _body(
@@ -146,14 +149,39 @@ async def test_list_and_revoke(
     listed = await client.get(
         "/api/v1/access-grants", params={"granted_to_id": str(pm.id)}, headers=headers
     )
-    revoked = await client.delete(f"/api/v1/access-grants/{grant_id}", headers=headers)
+    revoked = await client.post(
+        f"/api/v1/access-grants/{grant_id}/revoke",
+        json={"reason": REVOKE_REASON},
+        headers=headers,
+    )
     after = await client.get("/api/v1/access-grants", headers=headers)
 
     assert [g["id"] for g in listed.json()] == [grant_id]
     assert revoked.status_code == 204
     assert after.json() == []
-    actions = (await session.scalars(select(AuditLog.action))).all()
-    assert "access_grant.revoked" in actions
+    audit = (
+        await session.scalars(select(AuditLog).where(AuditLog.action == "access_grant.revoked"))
+    ).one()
+    assert (audit.actor_id, audit.reason) == (ops.id, REVOKE_REASON)
+
+
+@pytest.mark.parametrize("body", [{}, {"reason": "too short"}])
+async def test_revoking_needs_a_reason(
+    client: AsyncClient, session: AsyncSession, settings: Settings, body: dict[str, str]
+) -> None:
+    ops = await make_user(session, role=UserRole.PEOPLE_OPS)
+    pm = await make_user(session, role=UserRole.PM)
+    worker, _ = await make_worker(session)
+    headers = bearer(settings, ops)
+    created = await client.post(
+        "/api/v1/access-grants", json=_body(pm.id, scoped_worker_id=worker.id), headers=headers
+    )
+
+    response = await client.post(
+        f"/api/v1/access-grants/{created.json()['id']}/revoke", json=body, headers=headers
+    )
+
+    assert (response.status_code, response.json()["code"]) == (422, "validation_error")
 
 
 async def test_revoking_unknown_grant_is_404(
@@ -161,8 +189,10 @@ async def test_revoking_unknown_grant_is_404(
 ) -> None:
     ops = await make_user(session, role=UserRole.PEOPLE_OPS)
 
-    response = await client.delete(
-        f"/api/v1/access-grants/{uuid4()}", headers=bearer(settings, ops)
+    response = await client.post(
+        f"/api/v1/access-grants/{uuid4()}/revoke",
+        json={"reason": REVOKE_REASON},
+        headers=bearer(settings, ops),
     )
 
     assert response.json()["code"] == "grant_not_found"

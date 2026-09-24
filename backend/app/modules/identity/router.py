@@ -6,7 +6,6 @@ from fastapi import APIRouter, Cookie, Depends, Header, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.audit.writer import write_audit
 from app.core.config import Settings
 from app.core.context import Actor
 from app.core.db.session import SessionDep
@@ -23,6 +22,7 @@ from app.modules.identity.repository import UserRepository
 from app.modules.identity.schemas import (
     GrantCreate,
     GrantRead,
+    GrantRevoke,
     MagicLinkRequest,
     MagicLinkVerify,
     MeResponse,
@@ -190,14 +190,6 @@ async def oidc_callback(
     service = OidcLoginService(session, redis, settings, provider)
     user, claims = await service.complete(code=code, state=state)
     issued = await SessionService(session, settings).start(user, amr=claims.amr)
-    await write_audit(
-        session,
-        actor=Actor(user_id=user.id, role=user.role),
-        action="auth.sso_login",
-        target_type="user_account",
-        target_id=user.id,
-        after={"amr": claims.amr},
-    )
     response = RedirectResponse(f"{settings.public_app_url}/console", status_code=302)
     set_refresh_cookie(response, settings, issued)
     response.delete_cookie(OIDC_STATE_COOKIE, path=OIDC_COOKIE_PATH)
@@ -223,9 +215,11 @@ async def list_access_grants(
     return [GrantRead.model_validate(g) for g in grants]
 
 
-@router.delete("/access-grants/{grant_id}", status_code=204)
-async def revoke_access_grant(grant_id: UUID, actor: GrantManager, session: SessionDep) -> None:
-    await GrantService(session).revoke(actor, grant_id)
+@router.post("/access-grants/{grant_id}/revoke", status_code=204)
+async def revoke_access_grant(
+    grant_id: UUID, body: GrantRevoke, actor: GrantManager, session: SessionDep
+) -> None:
+    await GrantService(session).revoke(actor, grant_id, body.reason)
 
 
 async def require_scim_token(
