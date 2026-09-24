@@ -67,3 +67,18 @@ name = "passport and engagements never import standing or governance"
 type = "forbidden"
 source_modules = ["app.modules.passport", "app.modules.engagements"]
 forbidden_modules = ["app.modules.standing", "app.modules.governance"]
+
+# source_modules is hard-coded: any new module added under app/modules/ must
+# be added to this list too, or the contract silently stops covering it.
+[[tool.importlinter.contracts]]
+name = "no module imports roster"
+type = "forbidden"
+source_modules = [
+    "app.modules.identity",
+    "app.modules.passport",
+    "app.modules.engagements",
+    "app.modules.standing",
+    "app.modules.governance",
+    "app.modules.integrations",
+]
+forbidden_modules = ["app.modules.roster"]

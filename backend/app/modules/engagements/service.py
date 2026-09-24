@@ -1,7 +1,13 @@
 """Public interface of the engagements module."""
 
 from app.modules.engagements.enums import EngagementPath, EngagementStatus, ProjectStatus, WorkMode
-from app.modules.engagements.queries import standing_records
+from app.modules.engagements.queries import (
+    engagement_activity,
+    engagement_worker_id,
+    staffed_project,
+    staffed_project_ids,
+    standing_records,
+)
 from app.modules.engagements.visibility import project_relationship
 
 __all__ = [
@@ -9,6 +15,10 @@ __all__ = [
     "EngagementStatus",
     "ProjectStatus",
     "WorkMode",
+    "engagement_activity",
+    "engagement_worker_id",
     "project_relationship",
+    "staffed_project",
+    "staffed_project_ids",
     "standing_records",
 ]

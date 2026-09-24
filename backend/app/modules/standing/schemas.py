@@ -47,6 +47,9 @@ class StandingExplanation(BaseModel):
 
     worker_id: UUID
     tier: StandingTier
+    # The tier the active policy gives today; differs from `tier` until the
+    # recalculation handler or the nightly run records the change.
+    evaluated_tier: StandingTier
     policy_version: int
     window_months: int
     tiers: list[TierRule]

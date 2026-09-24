@@ -11,6 +11,7 @@ from app.core.outbox.processing import process_event, purge_dispatched_events
 from app.modules.engagements.contracts import activate_due
 from app.modules.engagements.stuck import flag_stuck, retry_payroll_signals
 from app.modules.identity.grants import GrantService
+from app.modules.roster.service import rebuild_all
 from app.modules.standing.service import recalculate_all_standing
 
 MAX_HANDLER_TRIES = 5
@@ -61,3 +62,9 @@ async def flag_stuck_engagements(ctx: dict[str, Any]) -> int:
 async def recalculate_standing(ctx: dict[str, Any]) -> int:
     async with ctx["sessionmaker"]() as session, session.begin():
         return await recalculate_all_standing(session)
+
+
+async def rebuild_roster(ctx: dict[str, Any]) -> int:
+    # No session.begin(): rebuild_all commits per batch itself.
+    async with ctx["sessionmaker"]() as session:
+        return await rebuild_all(session)

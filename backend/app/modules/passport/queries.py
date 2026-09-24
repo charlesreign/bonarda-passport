@@ -21,7 +21,12 @@ from app.modules.passport.repository import (
     SkillClaimRepository,
     WorkerRepository,
 )
-from app.modules.passport.schemas import EngagementReadiness, WorkerRegion, WorkerUpdated
+from app.modules.passport.schemas import (
+    EngagementReadiness,
+    RosterWorker,
+    WorkerRegion,
+    WorkerUpdated,
+)
 
 
 async def existing_skill_ids(session: AsyncSession, skill_ids: Iterable[UUID]) -> set[UUID]:
@@ -161,3 +166,43 @@ async def verify_skill(session: AsyncSession, worker_id: UUID, skill_id: UUID) -
         return False
     claim.verification_status = VerificationStatus.BONARDA_VERIFIED
     return True
+
+
+async def roster_snapshot(session: AsyncSession, worker_id: UUID) -> RosterWorker | None:
+    worker = await WorkerRepository(session).get(worker_id)
+    if worker is None:
+        return None
+    claims = [claim for claim, _ in await SkillClaimRepository(session).list_for_worker(worker_id)]
+    consent = await ConsentRepository(session).get(worker_id, ConsentPurpose.CROSS_REGION_MATCHING)
+    return RosterWorker(
+        worker_id=worker.id,
+        display_name=worker.full_name,
+        status=worker.status,
+        onboarding_state=worker.onboarding_state,
+        data_region=worker.data_region,
+        cross_region_ok=consent is not None and consent.granted,
+        standing_tier=worker.standing_tier,
+        skill_ids=sorted(
+            {
+                c.skill_id
+                for c in claims
+                if c.verification_status is not VerificationStatus.UNVERIFIED
+            },
+            key=str,
+        ),
+        verified_skill_ids=sorted(
+            {
+                c.skill_id
+                for c in claims
+                if c.verification_status is VerificationStatus.BONARDA_VERIFIED
+            },
+            key=str,
+        ),
+        base_location=worker.base_location,
+        availability_status=worker.availability_status,
+        available_from=worker.available_from,
+    )
+
+
+async def all_worker_ids(session: AsyncSession) -> list[UUID]:
+    return list((await session.scalars(select(Worker.id).order_by(Worker.id))).all())

@@ -16,6 +16,8 @@ from app.modules.governance.models import PolicyConfig
 from app.modules.governance.repository import PolicyRepository
 from app.modules.governance.schemas import (
     RULES_BY_KIND,
+    MatchingPolicy,
+    MatchingRules,
     PolicyActivated,
     PolicyCreate,
     PolicyRead,
@@ -134,6 +136,15 @@ async def active_tiering(session: AsyncSession) -> TieringPolicy:
         raise RuntimeError("no active tiering policy; migration 0008 seeds one")
     return TieringPolicy(
         id=policy.id, version=policy.version, rules=TieringRules.model_validate(policy.rules)
+    )
+
+
+async def active_matching(session: AsyncSession) -> MatchingPolicy:
+    policy = await PolicyRepository(session).active(PolicyKind.MATCHING)
+    if policy is None:
+        raise RuntimeError("no active matching policy; migration 0008 seeds one")
+    return MatchingPolicy(
+        id=policy.id, version=policy.version, rules=MatchingRules.model_validate(policy.rules)
     )
 
 

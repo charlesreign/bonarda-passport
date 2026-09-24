@@ -5,15 +5,9 @@ from uuid import UUID
 from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.engagements.enums import OPEN_STATUSES, EngagementStatus
+from app.modules.engagements.enums import HISTORY_STATUSES, OPEN_STATUSES, EngagementStatus
 from app.modules.engagements.models import Engagement, Feedback, Project, ProjectStaff
 from app.modules.identity.service import active_pm_ids
-
-_HISTORY_STATUSES = (
-    EngagementStatus.SIGNED,
-    EngagementStatus.ACTIVE,
-    EngagementStatus.COMPLETED,
-)
 
 
 class ProjectRepository:
@@ -138,7 +132,7 @@ class EngagementRepository:
                 select(
                     exists().where(
                         Engagement.worker_id == worker_id,
-                        Engagement.status.in_(_HISTORY_STATUSES),
+                        Engagement.status.in_(HISTORY_STATUSES),
                     )
                 )
             )
@@ -161,7 +155,7 @@ class EngagementRepository:
             select(Engagement)
             .where(
                 Engagement.worker_id == worker_id,
-                Engagement.status.in_(_HISTORY_STATUSES),
+                Engagement.status.in_(HISTORY_STATUSES),
             )
             .order_by(Engagement.start_date.desc(), Engagement.created_at.desc())
             .limit(1)
