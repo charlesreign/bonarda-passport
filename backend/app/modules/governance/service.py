@@ -9,6 +9,7 @@ from app.modules.governance.enums import (
     PolicyStatus,
 )
 from app.modules.governance.policies import active_matching, active_tiering, policy_versions
+from app.modules.governance.reminders import remind_due_disputes
 
 __all__ = [
     "DisputeResolution",
@@ -21,4 +22,5 @@ __all__ = [
     "active_matching",
     "active_tiering",
     "policy_versions",
+    "remind_due_disputes",
 ]

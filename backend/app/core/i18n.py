@@ -45,6 +45,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "dispute_resolved.body.rejected": (
             "People Ops reviewed your dispute and did not uphold it.\n\nTheir notes:\n{notes}"
         ),
+        "dispute_sla.subject": "Disputes: {overdue} overdue, {due_soon} due soon",
+        "dispute_sla.body": "These open disputes need a decision:\n\n{lines}",
+        "dispute_sla.overdue": "overdue",
+        "dispute_sla.due_soon": "due soon",
     },
     "fr": {
         "magic_link.subject": "Votre lien de connexion Bonarda",
@@ -88,6 +92,10 @@ MESSAGES: dict[str, dict[str, str]] = {
             "L'équipe People Ops a examiné votre contestation et ne l'a pas retenue.\n\n"
             "Ses remarques :\n{notes}"
         ),
+        "dispute_sla.subject": "Contestations : {overdue} en retard, {due_soon} bientôt dues",
+        "dispute_sla.body": "Ces contestations ouvertes attendent une décision :\n\n{lines}",
+        "dispute_sla.overdue": "en retard",
+        "dispute_sla.due_soon": "bientôt due",
     },
 }
 DEFAULT_LOCALE = "en"

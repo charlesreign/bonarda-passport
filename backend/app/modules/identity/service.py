@@ -7,6 +7,7 @@ from app.modules.identity.accounts import (
     find_worker_account,
     provision_worker_account,
     request_sign_in_link,
+    staff_contacts,
     worker_contact,
 )
 from app.modules.identity.dependencies import CurrentActor, require_permission
@@ -32,5 +33,6 @@ __all__ = [
     "request_sign_in_link",
     "require_permission",
     "require_visibility",
+    "staff_contacts",
     "worker_contact",
 ]
