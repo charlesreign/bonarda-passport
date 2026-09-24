@@ -20,6 +20,7 @@ from app.modules.identity.router import router as identity_router
 from app.modules.identity.service import VisibilityPolicy
 from app.modules.integrations.service import build_mailer
 from app.modules.passport.router import router as passport_router
+from app.modules.standing.router import router as standing_router
 from app.wiring import visibility_sources
 
 
@@ -61,4 +62,5 @@ def create_app(
     app.include_router(passport_router)
     app.include_router(engagements_router)
     app.include_router(governance_router)
+    app.include_router(standing_router)
     return app
