@@ -28,7 +28,12 @@ class PolicyRepository:
         return await self.session.scalar(
             select(PolicyConfig)
             .where(PolicyConfig.kind == kind, PolicyConfig.version == version)
-            .with_for_update()
+            # key_share=True takes FOR NO KEY UPDATE, not a plain FOR UPDATE: it still
+            # serializes concurrent activations against each other, but does not
+            # conflict with the FOR KEY SHARE lock that standing_changes inserts take
+            # on policy_version_id, so activation does not block behind an
+            # in-flight re-evaluation.
+            .with_for_update(key_share=True)
         )
 
     async def active(self, kind: PolicyKind, *, for_update: bool = False) -> PolicyConfig | None:
@@ -36,7 +41,9 @@ class PolicyRepository:
             PolicyConfig.kind == kind, PolicyConfig.status == PolicyStatus.ACTIVE
         )
         if for_update:
-            stmt = stmt.with_for_update()
+            # See get_for_update: FOR NO KEY UPDATE avoids contending with the
+            # FOR KEY SHARE lock taken by concurrent standing_changes inserts.
+            stmt = stmt.with_for_update(key_share=True)
         return await self.session.scalar(stmt)
 
     async def next_version(self, kind: PolicyKind) -> int:
