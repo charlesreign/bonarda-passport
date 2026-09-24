@@ -10,7 +10,7 @@ The spec's MVA (§10) is delivered as six sequential plans. Each plan ends with 
 | 2A | `2026-09-23-bonarda-02a-worker-passport.md` | `passport` (workers, skills taxonomy and claims, profile views, onboarding, consents, PM invitations), SMTP mailer, sign-in mail sent by the worker, per-account locale, Plan 1 identity carry-forward fixes | 1 | Implemented on `feat/worker-passport` |
 | 2B | `2026-09-24-bonarda-02b-engagements.md` | `engagements` (projects, staffing, first-time engagements, reactivation prefill and create, contracts via fake e-sign, e-sign webhook, payroll signal, completion, feedback, stuck detector), e-sign/payroll adapters, PM visibility sources, `AccessRevoked` → end `project_staff` | 2A | Written |
 | 3A | `2026-09-25-bonarda-03a-standing.md` | governance policies (versioned, two-person activation), standing (rules engine, append-only standing changes, skill evidence and verification, re-evaluation on activation and nightly, explanation API) | 2B | Implemented on `feat/standing` |
-| 3B | `2026-09-26-bonarda-03b-roster.md` | roster (read-model, scoring, candidates, first-shot, impression logging, first-shot visibility source) | 3A | Written |
+| 3B | `2026-09-26-bonarda-03b-roster.md` | roster (read-model, scoring, candidates, first-shot, impression logging, first-shot visibility source) | 3A | Implemented on `feat/roster` |
 | 4 | `…-04-governance.md` | Disputes with SLA, standing overrides, concentration rollups and alerts, audit-log API, retention enforcement and anonymization | 3B | Not written |
 | 5 | `…-05-frontend.md` | Vite/React app: generated API client, providers, `/passport`, `/console`, `/ops` bundles, i18n (en/fr), size budgets, Playwright + axe | 1–4 (API contract) | Not written |
 | 6 | `…-06-demo-and-operations.md` | Docker Compose with Keycloak + Mailpit, real `AuthlibOidcProvider` verification against Keycloak, seed data, Prometheus metrics and custom counters, Locust profile | 1–5 | Not written |
@@ -64,6 +64,9 @@ Each item below must become a named task with a test in the plan listed.
 | 4 | A first-shot `engaged` outcome is recorded by the PM; it is not derived from an actual engagement on the project. Consider setting it automatically when the PM engages that worker on the project. |
 | 4 | Concentration rollups (`first_shot_shown`, `first_shot_engaged`) read `first_shot_reviews`. |
 | any | The lock-order row gains roster refreshes. They are serialized per worker with a transaction-level advisory lock (`pg_advisory_xact_lock`), taken before any other lock in the refresh. |
+| any | The candidate cursor has no `policy_version`, so a matching-policy activation mid-walk can skip or repeat candidates. Add the version and reject a mismatch. |
+| any | PM visibility calls `list_staffed_by` once per source; share the lookup. |
+| 4 | First-shot review outcomes have no transition rules. Plan 4 must settle them before `first_shot_engaged` rollups, and must also skip closed projects' panels. |
 
 ## Implementation deviations from the spec (recorded as they happen)
 
@@ -96,3 +99,4 @@ Each item below must become a named task with a test in the plan listed.
 | 3B | The first-shot panel leaves out workers already `passed` or `engaged` for the project | The panel keeps surfacing new people instead of re-showing decided ones |
 | 3B | Candidates and the first-shot panel include only `profile_complete` workers | An invited worker cannot yet be engaged (FR-5.1) |
 | 3B | `last_12m` and `last_engaged_on` count only engagements whose start date has passed. Future signed engagements count in `total` only | Roster counters reflect work actually underway or done, not scheduled future starts |
+| 3B | Spec §7.7 lists `EngagementCreated → roster.refresh_worker`, but the roster subscribes `ContractSigned`, `EngagementCompleted` and `EngagementCancelled` | Only signed-or-later engagements count toward activity |
