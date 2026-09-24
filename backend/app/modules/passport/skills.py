@@ -82,7 +82,9 @@ class ClaimService:
         )
 
     async def remove(self, who: WorkerActor, skill_id: UUID) -> None:
-        claim = await self.claims.get(who.worker_id, skill_id)
+        # Lock the claim before checking verification_status: without this, a
+        # concurrent verification can land between the check and the delete.
+        claim = await self.claims.get_for_update(who.worker_id, skill_id)
         if claim is None:
             raise NotFound("You do not list this skill", code="claim_not_found")
         if claim.verification_status is VerificationStatus.BONARDA_VERIFIED:
