@@ -50,3 +50,20 @@ name = "modules do not depend on the composition root"
 type = "forbidden"
 source_modules = ["app.modules"]
 forbidden_modules = ["app.main", "app.worker", "app.wiring", "app.models_registry"]
+
+[[tool.importlinter.contracts]]
+name = "governance imports no other domain module"
+type = "forbidden"
+source_modules = ["app.modules.governance"]
+forbidden_modules = [
+    "app.modules.passport",
+    "app.modules.engagements",
+    "app.modules.standing",
+    "app.modules.integrations",
+]
+
+[[tool.importlinter.contracts]]
+name = "passport and engagements never import standing or governance"
+type = "forbidden"
+source_modules = ["app.modules.passport", "app.modules.engagements"]
+forbidden_modules = ["app.modules.standing", "app.modules.governance"]

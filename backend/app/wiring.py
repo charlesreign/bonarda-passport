@@ -13,6 +13,7 @@ from app.modules.engagements.service import project_relationship
 from app.modules.identity import handlers as identity_handlers
 from app.modules.identity.service import VisibilitySource
 from app.modules.integrations.service import EsignAdapter, PayrollAdapter
+from app.modules.standing import handlers as standing_handlers
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +31,7 @@ def build_registry(deps: HandlerDeps) -> HandlerRegistry:
         registry, redis=deps.redis, settings=deps.settings, mailer=deps.mailer
     )
     engagements_handlers.register(registry, esign=deps.esign, payroll=deps.payroll)
+    standing_handlers.register(registry)
     return registry
 
 

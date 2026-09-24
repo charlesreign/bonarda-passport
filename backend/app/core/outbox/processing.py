@@ -5,7 +5,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.core.context import correlation_scope
+from app.core.context import correlation_scope, event_scope
 from app.core.outbox.models import OutboxEvent, ProcessedEvent
 from app.core.outbox.registry import HandlerRegistry
 from app.core.time import utcnow
@@ -32,7 +32,7 @@ async def process_event(
         event = await session.scalar(select(OutboxEvent).where(OutboxEvent.event_id == event_id))
         if event is None:
             raise LookupError(f"outbox event {event_id} not found")
-        with correlation_scope(event.correlation_id):
+        with correlation_scope(event.correlation_id), event_scope(event.event_id):
             await registry.get(handler_name)(session, event.payload)
     return True
 
