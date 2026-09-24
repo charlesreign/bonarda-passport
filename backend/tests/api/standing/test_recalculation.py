@@ -133,13 +133,18 @@ async def test_concurrent_recalculations_record_one_change(
     pm, worker, engagement = await _completed_engagement(session)
     await make_feedback(session, engagement_id=engagement.id, reviewer_id=pm.id)
 
-    async def run() -> None:
+    async def run() -> StandingChange | None:
         async with sessionmaker() as s, s.begin():
-            await recalculate(s, worker.id, policy=await active_tiering(s), trigger_event_id=None)
+            return await recalculate(
+                s, worker.id, policy=await active_tiering(s), trigger_event_id=None
+            )
 
-    await asyncio.gather(run(), run())
+    results = await asyncio.gather(run(), run())
 
+    assert sum(result is not None for result in results) == 1
     assert len((await session.scalars(select(StandingChange))).all()) == 1
+    await session.refresh(worker)
+    assert worker.standing_tier is StandingTier.TIER_1
 
 
 async def test_standing_changes_are_append_only(session: AsyncSession) -> None:
