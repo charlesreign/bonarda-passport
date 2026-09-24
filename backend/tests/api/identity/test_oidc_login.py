@@ -4,6 +4,7 @@ from datetime import timedelta
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from fakeredis import aioredis as fake_aioredis
 from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -14,11 +15,12 @@ from app.core.config import Settings
 from app.core.enums import AccountStatus, AuthProvider, UserRole
 from app.core.time import utcnow
 from app.modules.engagements.models import ProjectStaff
-from app.modules.identity.models import RefreshSession, UserAccount
+from app.modules.identity.models import AccessGrant, RefreshSession, UserAccount
 from app.modules.identity.oidc import IdTokenClaims
+from app.modules.identity.oidc_login import OidcLoginService
 from app.modules.identity.router import OIDC_STATE_COOKIE, REFRESH_COOKIE
 from app.modules.identity.sessions import SessionService
-from tests.support import bearer, make_project, make_user
+from tests.support import bearer, make_project, make_user, make_worker
 
 
 @dataclass
@@ -306,3 +308,85 @@ async def test_role_change_at_login_revokes_other_sessions(
     assert len(sessions) == 2  # the old one (revoked) and the one this login issued
     stale = await client.get("/api/v1/me", headers=old_token)
     assert stale.json()["code"] == "session_revoked"
+
+
+async def test_role_change_at_login_keeps_its_own_new_session_usable(
+    client: AsyncClient, session: AsyncSession, idp: FakeOidcProvider
+) -> None:
+    """Guards the `marker_at = now - 1s` logic in `oidc_login.py`: the
+    revocation marker must precede the session this same login issues, or
+    the login would revoke itself."""
+    await make_user(session, role=UserRole.PM, email="ama@bonarda.works", oidc_subject="kc-ama")
+    idp.claims = IdTokenClaims(
+        subject="kc-ama",
+        email="ama@bonarda.works",
+        amr=["otp"],
+        acr=None,
+        groups=["bonarda-finance"],
+    )
+    state = await _login(client)
+
+    callback = await client.get("/api/v1/auth/oidc/callback", params={"code": "c", "state": state})
+    assert callback.status_code == 302
+
+    refreshed = await client.post("/api/v1/auth/refresh")
+    assert refreshed.status_code == 200
+    token = refreshed.json()["access_token"]
+
+    me = await client.get("/api/v1/me", headers={"Authorization": f"Bearer {token}"})
+
+    assert me.status_code == 200
+    assert me.json()["role"] == "finance"
+
+
+async def test_completing_sign_in_writes_the_audit_row(
+    session: AsyncSession, redis: fake_aioredis.FakeRedis, settings: Settings
+) -> None:
+    service = OidcLoginService(session, redis, settings, FakeOidcProvider())
+    _, state = await service.begin()
+
+    user, _ = await service.complete(code="c0de", state=state)
+    await session.commit()
+
+    audit = (
+        await session.scalars(select(AuditLog).where(AuditLog.action == "auth.sso_login"))
+    ).one()
+    assert (audit.actor_id, audit.after) == (user.id, {"amr": ["pwd", "otp"]})
+
+
+async def test_role_change_at_login_closes_the_pms_grants(
+    client: AsyncClient, session: AsyncSession, idp: FakeOidcProvider
+) -> None:
+    ama = await make_user(
+        session, role=UserRole.PM, email="ama@bonarda.works", oidc_subject="kc-ama"
+    )
+    worker, _ = await make_worker(session)
+    grant = AccessGrant(
+        granted_to_id=ama.id,
+        scoped_worker_id=worker.id,
+        reason="Covering for a colleague on leave",
+        expires_at=utcnow() + timedelta(days=5),
+    )
+    session.add(grant)
+    await session.commit()
+    idp.claims = IdTokenClaims(
+        subject="kc-ama",
+        email="ama@bonarda.works",
+        amr=["otp"],
+        acr=None,
+        groups=["bonarda-finance"],
+    )
+    state = await _login(client)
+
+    await client.get("/api/v1/auth/oidc/callback", params={"code": "c", "state": state})
+
+    await session.refresh(grant)
+    assert grant.revoked_at is not None
+    revoked = (
+        await session.scalars(select(AuditLog).where(AuditLog.action == "access.revoked"))
+    ).one()
+    assert (revoked.reason, revoked.before, revoked.after) == (
+        "role_changed",
+        {"status": "active", "role": "pm"},
+        {"status": "active", "role": "finance"},
+    )

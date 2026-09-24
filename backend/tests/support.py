@@ -2,7 +2,7 @@ import importlib.util
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -20,7 +20,8 @@ from app.core.outbox.registry import HandlerRegistry
 from app.core.time import utcnow
 from app.modules.engagements.enums import EngagementPath, EngagementStatus, WorkMode
 from app.modules.engagements.models import Engagement, Feedback, Project, ProjectStaff
-from app.modules.governance.models import PolicyConfig
+from app.modules.governance.enums import DisputeResolution, DisputeStatus, DisputeTargetType
+from app.modules.governance.models import Dispute, PolicyConfig
 from app.modules.identity.models import UserAccount
 from app.modules.identity.tokens import issue_access_token
 from app.modules.integrations.service import sign_payload
@@ -307,3 +308,29 @@ async def make_feedback(
     session.add(feedback)
     await session.commit()
     return feedback
+
+
+async def make_dispute(
+    session: AsyncSession,
+    *,
+    worker_id: UUID,
+    due_at: datetime,
+    target_type: DisputeTargetType = DisputeTargetType.ENGAGEMENT,
+    target_id: UUID | None = None,
+    resolved: bool = False,
+) -> Dispute:
+    dispute = Dispute(
+        worker_id=worker_id,
+        target_type=target_type,
+        target_id=target_id or uuid4(),
+        reason="Seeded dispute reason",
+        due_at=due_at,
+    )
+    if resolved:
+        dispute.status = DisputeStatus.RESOLVED
+        dispute.resolution = DisputeResolution.REJECTED
+        dispute.resolution_notes = "Seeded resolution notes"
+        dispute.resolved_at = utcnow() - timedelta(days=1)
+    session.add(dispute)
+    await session.commit()
+    return dispute

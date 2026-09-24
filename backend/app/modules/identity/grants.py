@@ -75,7 +75,7 @@ class GrantService:
         )
         return grant
 
-    async def revoke(self, actor: Actor, grant_id: UUID) -> None:
+    async def revoke(self, actor: Actor, grant_id: UUID, reason: str) -> None:
         grant = await self.grants.get(grant_id)
         if grant is None:
             raise NotFound("Access grant not found", code="grant_not_found")
@@ -90,6 +90,7 @@ class GrantService:
             target_id=grant.id,
             before={"revoked_at": None},
             after={"revoked_at": grant.revoked_at.isoformat()},
+            reason=reason,
         )
 
     async def list_active(self, granted_to_id: UUID | None) -> list[AccessGrant]:

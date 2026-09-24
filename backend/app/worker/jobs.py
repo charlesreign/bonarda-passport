@@ -8,8 +8,10 @@ from arq.worker import Retry
 
 from app.core.config import get_settings
 from app.core.outbox.processing import process_event, purge_dispatched_events
+from app.core.time import utcnow
 from app.modules.engagements.contracts import activate_due
 from app.modules.engagements.stuck import flag_stuck, retry_payroll_signals
+from app.modules.governance.service import remind_due_disputes
 from app.modules.identity.grants import GrantService
 from app.modules.roster.service import rebuild_all
 from app.modules.standing.service import recalculate_all_standing
@@ -68,3 +70,14 @@ async def rebuild_roster(ctx: dict[str, Any]) -> int:
     # No session.begin(): rebuild_all commits per batch itself.
     async with ctx["sessionmaker"]() as session:
         return await rebuild_all(session)
+
+
+async def remind_dispute_sla(ctx: dict[str, Any]) -> int:
+    """Daily: one digest of overdue and soon-due disputes to People Ops."""
+    async with ctx["sessionmaker"]() as session:
+        return await remind_due_disputes(
+            session,
+            ctx["mailer"],
+            now=utcnow(),
+            warn_days=ctx["settings"].dispute_reminder_days,
+        )

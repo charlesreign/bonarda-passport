@@ -59,6 +59,7 @@ class ContractTerms(BaseModel):
 class FeedbackRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    id: UUID
     structured_answers: dict[str, bool]
     free_text: str | None
     skill_ids_demonstrated: list[UUID]
@@ -164,6 +165,14 @@ class EngagementCancelled(DomainEvent):
     event_type: ClassVar[str] = "engagements.engagement_cancelled"
     worker_id: UUID
     project_id: UUID
+
+
+class PayrollSignalRequested(DomainEvent):
+    """Emitted only by the payroll-signal retry job (never by activation), so
+    a retry never re-triggers the worker/PM mail handlers that listen on
+    `EngagementActivated`."""
+
+    event_type: ClassVar[str] = "engagements.payroll_signal_requested"
 
 
 class CompletionRequest(BaseModel):

@@ -66,6 +66,14 @@ async def engagement_worker_id(session: AsyncSession, engagement_id: UUID) -> UU
     return await session.scalar(select(Engagement.worker_id).where(Engagement.id == engagement_id))
 
 
+async def feedback_worker_id(session: AsyncSession, feedback_id: UUID) -> UUID | None:
+    return await session.scalar(
+        select(Engagement.worker_id)
+        .join(Feedback, Feedback.engagement_id == Engagement.id)
+        .where(Feedback.id == feedback_id)
+    )
+
+
 async def staffed_project(
     session: AsyncSession, user_id: UUID, project_id: UUID
 ) -> ProjectContext | None:
@@ -86,3 +94,7 @@ async def staffed_project(
 
 async def staffed_project_ids(session: AsyncSession, user_id: UUID) -> list[UUID]:
     return [p.id for p in await ProjectRepository(session).list_staffed_by(user_id)]
+
+
+async def engagement_feedback_id(session: AsyncSession, engagement_id: UUID) -> UUID | None:
+    return await session.scalar(select(Feedback.id).where(Feedback.engagement_id == engagement_id))

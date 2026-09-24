@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Any, ClassVar
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.outbox.events import DomainEvent
 from app.modules.governance.schemas import TierRule
@@ -33,6 +33,7 @@ class StandingFactors(BaseModel):
 
 
 class StandingChangeRead(BaseModel):
+    id: UUID
     previous_tier: StandingTier
     new_tier: StandingTier
     factors: dict[str, Any]
@@ -47,11 +48,23 @@ class StandingExplanation(BaseModel):
 
     worker_id: UUID
     tier: StandingTier
-    # The tier the active policy gives today; differs from `tier` until the
-    # recalculation handler or the nightly run records the change.
+    # The tier the active policy gives today. Normally differs from `tier`
+    # only until the recalculation handler or the nightly run records the
+    # change; under a People Ops override it keeps differing until the
+    # rules' own verdict moves to (or past) the overridden tier, since
+    # recalculation leaves the override alone until then.
     evaluated_tier: StandingTier
     policy_version: int
     window_months: int
     tiers: list[TierRule]
     factors: StandingFactors
     history: list[StandingChangeRead]
+
+
+class StandingOverrideCreate(BaseModel):
+    """Spec §7.2 / §8.1: a manual tier change always carries a reason."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tier: StandingTier
+    reason: str = Field(min_length=10, max_length=500)

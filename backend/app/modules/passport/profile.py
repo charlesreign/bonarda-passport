@@ -103,12 +103,23 @@ class ProfileService:
                 "available_from needs availability_status=available_from",
                 code="availability_status_mismatch",
             )
-        for field, value in changes.items():
-            setattr(worker, field, value)
-        if changes:
-            await emit_event(
-                self.session, WorkerUpdated(aggregate_id=worker.id, fields=sorted(changes))
+        changed = sorted(
+            field for field, value in changes.items() if getattr(worker, field) != value
+        )
+        if "full_name" in changed:
+            # Spec §6.3: the audit log is append-only and outlives erasure, so
+            # it records that the name changed, never the name itself.
+            await write_audit(
+                self.session,
+                actor=who.actor,
+                action="worker.renamed",
+                target_type="worker",
+                target_id=worker.id,
             )
+        for field in changed:
+            setattr(worker, field, changes[field])
+        if changed:
+            await emit_event(self.session, WorkerUpdated(aggregate_id=worker.id, fields=changed))
         return await self.view_self(who)
 
     async def complete_onboarding(self, who: WorkerActor) -> WorkerSelf:
@@ -121,6 +132,7 @@ class ProfileService:
                     f"Complete your profile first: {', '.join(missing)}",
                     code="onboarding_incomplete",
                 )
+            previous = worker.onboarding_state
             worker.onboarding_state = OnboardingState.PROFILE_COMPLETE
             await write_audit(
                 self.session,
@@ -128,6 +140,8 @@ class ProfileService:
                 action="worker.onboarding_completed",
                 target_type="worker",
                 target_id=worker.id,
+                before={"onboarding_state": previous.value},
+                after={"onboarding_state": OnboardingState.PROFILE_COMPLETE.value},
             )
             await emit_event(
                 self.session, WorkerUpdated(aggregate_id=worker.id, fields=["onboarding_state"])
