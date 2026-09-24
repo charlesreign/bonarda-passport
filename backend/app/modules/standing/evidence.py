@@ -40,7 +40,9 @@ async def record_skill_evidence(
         return []
     evidence = SkillEvidenceRepository(session)
     verified = []
-    for skill_id in dict.fromkeys(skill_ids):
+    # Stable order avoids a deadlock: two concurrent calls locking the same
+    # worker's claims in different orders would otherwise wait on each other.
+    for skill_id in sorted(set(skill_ids), key=str):
         # Lock the claim before inserting evidence and counting: two concurrent
         # handlers for the same (worker, skill) otherwise both count under
         # READ COMMITTED before either sees the other's row, and neither verifies.

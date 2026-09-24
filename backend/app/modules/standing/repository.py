@@ -59,5 +59,6 @@ class SkillEvidenceRepository:
             .where(SkillEvidence.reviewer_id.is_not(None))
             .group_by(SkillEvidence.worker_id, SkillEvidence.skill_id)
             .having(func.count(func.distinct(SkillEvidence.reviewer_id)) >= min_reviewers)
+            .order_by(SkillEvidence.worker_id, SkillEvidence.skill_id)
         )
         return [(worker_id, skill_id) for worker_id, skill_id in await self.session.execute(stmt)]

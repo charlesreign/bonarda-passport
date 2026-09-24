@@ -54,6 +54,20 @@ async def _claim_status(session: AsyncSession, worker_id: UUID) -> VerificationS
     return claim.verification_status
 
 
+async def _claim_status_for_skill(
+    session: AsyncSession, worker_id: UUID, skill_id: UUID
+) -> VerificationStatus:
+    claim = (
+        await session.scalars(
+            select(SkillClaim).where(
+                SkillClaim.worker_id == worker_id, SkillClaim.skill_id == skill_id
+            )
+        )
+    ).one()
+    await session.refresh(claim)
+    return claim.verification_status
+
+
 async def test_two_distinct_reviewers_verify_a_skill(
     client: AsyncClient, session: AsyncSession, settings: Settings, drain: Drain
 ) -> None:
@@ -186,4 +200,53 @@ async def test_concurrent_feedback_from_two_reviewers_still_verifies(
             ).all()
         )
         == 1
+    )
+
+
+async def test_concurrent_feedback_with_reversed_skill_order_does_not_deadlock(
+    session: AsyncSession, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """Two reviewers demonstrate the same two skills in opposite list order.
+    If the claim locks were taken in client-supplied order, one transaction
+    would lock skill_x then wait on skill_y while the other holds skill_y and
+    waits on skill_x: a classic deadlock. A stable per-call lock order avoids it."""
+    worker, _ = await make_ready_worker(session)
+    skill_x = (await session.scalars(select(Skill))).one()
+    skill_y = Skill(slug="project-management", name_i18n={"en": "Project management"})
+    session.add(skill_y)
+    await session.flush()
+    session.add(SkillClaim(worker_id=worker.id, skill_id=skill_y.id))
+    await session.commit()
+
+    ama = await make_user(session, role=UserRole.PM)
+    kwame = await make_user(session, role=UserRole.PM)
+    project = await make_project(session, staff=[ama, kwame])
+    engagement_a = await make_engagement(session, worker_id=worker.id, project_id=project.id)
+    engagement_b = await make_engagement(session, worker_id=worker.id, project_id=project.id)
+
+    barrier = asyncio.Event()
+
+    async def _record(engagement_id: UUID, reviewer_id: UUID, skill_ids: list[UUID]) -> None:
+        async with sessionmaker() as s, s.begin():
+            await barrier.wait()
+            await record_skill_evidence(
+                s,
+                engagement_id=engagement_id,
+                worker_id=worker.id,
+                reviewer_id=reviewer_id,
+                skill_ids=skill_ids,
+                min_reviewers=2,
+            )
+
+    task_a = asyncio.create_task(_record(engagement_a.id, ama.id, [skill_x.id, skill_y.id]))
+    task_b = asyncio.create_task(_record(engagement_b.id, kwame.id, [skill_y.id, skill_x.id]))
+    await asyncio.sleep(0)
+    barrier.set()
+    await asyncio.wait_for(asyncio.gather(task_a, task_b), timeout=10)
+
+    assert await _claim_status_for_skill(session, worker.id, skill_x.id) is (
+        VerificationStatus.BONARDA_VERIFIED
+    )
+    assert await _claim_status_for_skill(session, worker.id, skill_y.id) is (
+        VerificationStatus.BONARDA_VERIFIED
     )
