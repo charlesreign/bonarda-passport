@@ -41,6 +41,7 @@ bonarda-passport/
 │   │   │   │   ├── permissions.py         # fixed role × permission matrix (FR-9.3)
 │   │   │   │   ├── visibility.py          # VisibilityPolicy dependency (FR-9.4)
 │   │   │   │   ├── tokens.py              # PyJWT access tokens, refresh rotation, magic links
+│   │   │   │   ├── access_revocation.py   # one revocation path for SCIM and OIDC (Plan 4A)
 │   │   │   │   └── handlers.py
 │   │   │   ├── passport/                  # workers, skills, claims, consents, invitations (Plan 2A)
 │   │   │   │   ├── enums.py, models.py, repository.py, schemas.py, dependencies.py
@@ -50,16 +51,17 @@ bonarda-passport/
 │   │   │   ├── engagements/               # projects, staffing, engagements, contracts, feedback (Plan 2B)
 │   │   │   │   ├── enums.py, models.py, repository.py, schemas.py, queries.py
 │   │   │   │   ├── projects.py, visibility.py, engagements.py, contracts.py
-│   │   │   │   ├── payroll.py, feedback.py, stuck.py, handlers.py
+│   │   │   │   ├── payroll.py, feedback.py, stuck.py, handlers.py, notifications.py
 │   │   │   │   ├── router.py
 │   │   │   │   └── service.py
-│   │   │   ├── governance/                # policy_configs, two-person activation (Plan 3A); disputes etc. Plan 4
+│   │   │   ├── governance/                # policies (Plan 3A); disputes, audit-log API, SLA digest (Plan 4A)
 │   │   │   │   ├── enums.py, models.py, repository.py, schemas.py
-│   │   │   │   ├── policies.py, router.py
+│   │   │   │   ├── policies.py, disputes.py, audit.py, reminders.py, notifications.py
+│   │   │   │   ├── handlers.py, router.py
 │   │   │   │   └── service.py
 │   │   │   ├── standing/                  # tier rules engine, standing changes, skill evidence (Plan 3A)
 │   │   │   │   ├── rules.py, models.py, repository.py, schemas.py
-│   │   │   │   ├── recalculation.py, evidence.py, explanation.py
+│   │   │   │   ├── recalculation.py, evidence.py, explanation.py, overrides.py, queries.py, notifications.py
 │   │   │   │   ├── handlers.py, router.py
 │   │   │   │   └── service.py
 │   │   │   ├── roster/                    # read-model, scoring, candidates, first-shot (Plan 3B)

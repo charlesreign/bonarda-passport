@@ -98,3 +98,21 @@ async def test_staff_have_no_consents_endpoint(
     response = await client.get(URL, headers=bearer(settings, pm))
 
     assert response.status_code == 403
+
+
+async def test_the_audit_row_records_the_previous_value(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    _, account = await make_worker(session)
+    headers = bearer(settings, account)
+    await client.put(f"{URL}/cross_region_matching", json={"granted": True}, headers=headers)
+
+    await client.put(f"{URL}/cross_region_matching", json={"granted": False}, headers=headers)
+
+    withdrawn = (
+        await session.scalars(select(AuditLog).where(AuditLog.action == "consent.withdrawn"))
+    ).one()
+    assert (withdrawn.before, withdrawn.after) == (
+        {"purpose": "cross_region_matching", "granted": True},
+        {"purpose": "cross_region_matching", "granted": False},
+    )

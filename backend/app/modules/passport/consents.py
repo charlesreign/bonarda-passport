@@ -65,6 +65,7 @@ class ConsentService:
             action="consent.granted" if granted else "consent.withdrawn",
             target_type="worker",
             target_id=who.worker_id,
+            before={"purpose": purpose.value, "granted": current},
             after={"purpose": purpose.value, "granted": granted},
         )
         await emit_event(
