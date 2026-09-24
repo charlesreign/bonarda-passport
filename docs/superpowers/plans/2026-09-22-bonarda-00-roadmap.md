@@ -9,7 +9,7 @@ The spec's MVA (§10) is delivered as six sequential plans. Each plan ends with 
 | 1 | `2026-09-22-bonarda-01-backend-foundation.md` | Backend scaffold, CI checks, shared kernel (settings, DB, problem+json errors, correlation IDs, audit writer, transactional outbox, relay, idempotent handlers, Arq worker), `identity` module (access/refresh tokens, magic links, staff OIDC with MFA check, role permission matrix, `VisibilityPolicy`, access grants, SCIM revocation) | — | Implemented on `feat/backend-foundation` |
 | 2A | `2026-09-23-bonarda-02a-worker-passport.md` | `passport` (workers, skills taxonomy and claims, profile views, onboarding, consents, PM invitations), SMTP mailer, sign-in mail sent by the worker, per-account locale, Plan 1 identity carry-forward fixes | 1 | Implemented on `feat/worker-passport` |
 | 2B | `2026-09-24-bonarda-02b-engagements.md` | `engagements` (projects, staffing, first-time engagements, reactivation prefill and create, contracts via fake e-sign, e-sign webhook, payroll signal, completion, feedback, stuck detector), e-sign/payroll adapters, PM visibility sources, `AccessRevoked` → end `project_staff` | 2A | Written |
-| 3A | `2026-09-25-bonarda-03a-standing.md` | governance policies (versioned, two-person activation), standing (rules engine, append-only standing changes, skill evidence and verification, re-evaluation on activation and nightly, explanation API) | 2B | Written |
+| 3A | `2026-09-25-bonarda-03a-standing.md` | governance policies (versioned, two-person activation), standing (rules engine, append-only standing changes, skill evidence and verification, re-evaluation on activation and nightly, explanation API) | 2B | Implemented on `feat/standing` |
 | 3B | `…-03b-roster.md` | roster (read-model, scoring, candidates, first-shot, impression logging, first-shot visibility source) | 3A | Not written |
 | 4 | `…-04-governance.md` | Disputes with SLA, standing overrides, concentration rollups and alerts, audit-log API, retention enforcement and anonymization | 3B | Not written |
 | 5 | `…-05-frontend.md` | Vite/React app: generated API client, providers, `/passport`, `/console`, `/ops` bundles, i18n (en/fr), size budgets, Playwright + axe | 1–4 (API contract) | Not written |
@@ -52,9 +52,11 @@ Each item below must become a named task with a test in the plan listed.
 | 4 | An upheld dispute must set `feedback.excluded_from_standing` and recalculate the worker (spec §7.7 `DisputeResolved`). |
 | 4 | Notify the worker when their standing changes (spec §7.7 `notify_worker` on `StandingChanged`). |
 | 4 | Standing overrides (`POST /standing-overrides`) write `standing_changes` with `actor_id` and `override_reason`; the table already has both columns. |
-| any | `recalculate_all` re-evaluates every worker in one transaction; batch it if the pool grows well past the pilot's 5,000 profiles. |
+| any | `recalculate_all` re-evaluates every worker in one transaction; batch it if the pool grows well past the pilot's 5,000 profiles. The run also holds a `FOR NO KEY UPDATE` lock on every pool worker until it commits, so a tiering activation during working hours delays worker profile edits, status changes and feedback recalculations for the length of the run; batch commits per group of workers (recalculate is idempotent). |
 | any | Skill verification never reverses. Raising the policy threshold does not un-verify skills already verified. |
 | any | Skill verification and tier recalculation each take locks in a fixed order, and future code that touches them must keep it: workers are locked `FOR NO KEY UPDATE`, in id order; skill claims are locked `FOR UPDATE`, sorted by skill id. |
+| 3B | The standing explanation shows the stored tier alongside live factors and the currently active policy version. Until the handler or nightly run catches up, these can disagree. Return the evaluated tier as well (e.g. `evaluated_tier`), or take `policy_version` from the latest standing change. |
+| 4 | Add DB invariants for policies: `status='active'` ⇒ `activated_at IS NOT NULL`. Also make proposed policies immutable at the DB level (a trigger or role grants), because today only the application prevents editing `rules`/`created_by_id`. |
 
 ## Implementation deviations from the spec (recorded as they happen)
 
@@ -69,7 +71,7 @@ Each item below must become a named task with a test in the plan listed.
 | 2A | Re-inviting a worker still at `invited` resends the invitation (200) instead of 409 | Recovery path for lost invitation emails |
 | 2B | Engagement routes address the worker in the path: `POST /workers/{id}/engagements`, `GET /workers/{id}/reactivation-prefill`, `POST /workers/{id}/reactivations`; managed actions are `/engagements/{id}/complete`, `/feedback`, `/contract/retry` (not `:complete`/`:retry`) | Visibility guard coverage; plain REST paths |
 | 2B | Reactivation prefill needs summary visibility, not detail, and returns contract terms only (scope; no access notes) | A new PM reactivating someone another PM worked with (FR-4.3's core case) only has summary visibility |
-| 2B | A worker with any non-cancelled engagement can only be engaged through reactivation | Keeps first-time vs repeat metrics (FR-5.3) accurate |
+| 2B | A worker with any non-cancelled engagement can only be engaged through reactivation (superseded in 3A: only signed or later engagements count as history) | Keeps first-time vs repeat metrics (FR-5.3) accurate |
 | 2B | Reactivation replays a concurrent duplicate `Idempotency-Key` from the same PM with 200 | The spec says "idempotent on key"; the reason is double-clicks |
 | 2B | `ESIGN_WEBHOOK_SECRET` is a new required setting | HMAC-signs and verifies the e-sign webhook (spec §8.1) |
 | 2B | Any staffed PM can edit a project's staff list (spec: people_ops or the owning PM) | Projects record only `created_by_id` (the creator, possibly people_ops), not an owning PM; every staffed PM is treated as an owner. Revisit if staffing needs tighter control |
