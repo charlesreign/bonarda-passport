@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from app import models_registry as _models_registry  # noqa: F401 (map tables before first flush)
 from app.core import health
-from app.core.config import Settings, get_settings
+from app.core.config import NON_PRODUCTION_ENVS, Settings, get_settings
 from app.core.db.session import create_engine
 from app.core.errors import install_error_handlers
 from app.core.logging import configure_logging
@@ -66,4 +66,8 @@ def create_app(
     app.include_router(governance_router)
     app.include_router(standing_router)
     app.include_router(roster_router)
+    if settings.demo_mode and settings.env in NON_PRODUCTION_ENVS:
+        from app.demo import router as demo_router
+
+        app.include_router(demo_router)
     return app
