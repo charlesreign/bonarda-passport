@@ -127,6 +127,12 @@ class TieringPolicy(BaseModel):
     rules: TieringRules
 
 
+class MatchingPolicy(BaseModel):
+    id: UUID
+    version: int
+    rules: MatchingRules
+
+
 class PolicyActivated(DomainEvent):
     """aggregate_id is the policy_configs row."""
 
