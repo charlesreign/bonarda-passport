@@ -182,7 +182,14 @@ async def roster_snapshot(session: AsyncSession, worker_id: UUID) -> RosterWorke
         data_region=worker.data_region,
         cross_region_ok=consent is not None and consent.granted,
         standing_tier=worker.standing_tier,
-        skill_ids=sorted({c.skill_id for c in claims}, key=str),
+        skill_ids=sorted(
+            {
+                c.skill_id
+                for c in claims
+                if c.verification_status is not VerificationStatus.UNVERIFIED
+            },
+            key=str,
+        ),
         verified_skill_ids=sorted(
             {
                 c.skill_id

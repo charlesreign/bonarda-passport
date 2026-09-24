@@ -117,6 +117,27 @@ async def test_the_row_projects_skills_and_signed_engagement_counts(
     assert (profile.base_location, profile.availability_status) == ("Accra", "available")
 
 
+async def test_unverified_claims_are_excluded_from_skill_ids(session: AsyncSession) -> None:
+    """Spec §7.4: coverage counts only self_reported and bonarda_verified claims."""
+    worker, _ = await make_ready_worker(session)
+    python = Skill(slug="python", name_i18n={"en": "Python"})
+    session.add(python)
+    await session.flush()
+    session.add(
+        SkillClaim(
+            worker_id=worker.id,
+            skill_id=python.id,
+            verification_status=VerificationStatus.UNVERIFIED,
+        )
+    )
+    await session.commit()
+
+    await refresh_roster(session)
+
+    profile = await _profile(session, worker)
+    assert python.id not in profile.skill_ids
+
+
 async def test_profile_edits_reach_the_roster_through_events(
     client: AsyncClient, session: AsyncSession, settings: Settings, drain: Drain
 ) -> None:
