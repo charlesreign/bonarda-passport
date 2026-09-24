@@ -14,6 +14,7 @@ from app.modules.identity import handlers as identity_handlers
 from app.modules.identity.service import VisibilitySource
 from app.modules.integrations.service import EsignAdapter, PayrollAdapter
 from app.modules.roster import handlers as roster_handlers
+from app.modules.roster.service import first_shot_relationship
 from app.modules.standing import handlers as standing_handlers
 
 
@@ -38,4 +39,4 @@ def build_registry(deps: HandlerDeps) -> HandlerRegistry:
 
 
 def visibility_sources() -> list[VisibilitySource]:
-    return [project_relationship]
+    return [project_relationship, first_shot_relationship]

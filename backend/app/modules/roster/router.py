@@ -5,11 +5,21 @@ from fastapi import APIRouter, Depends, Query
 
 from app.core.context import Actor
 from app.core.db.session import SessionDep
-from app.modules.identity.service import Permission, require_permission
+from app.modules.identity.service import (
+    Permission,
+    Visibility,
+    require_permission,
+    require_visibility,
+)
 from app.modules.passport.service import AvailabilityStatus
 from app.modules.roster.candidates import CandidateFilters, search
-from app.modules.roster.first_shot import first_shot_panel
-from app.modules.roster.schemas import CandidatePage, FirstShotPanel
+from app.modules.roster.first_shot import first_shot_panel, review
+from app.modules.roster.schemas import (
+    CandidatePage,
+    FirstShotPanel,
+    FirstShotReviewCreate,
+    FirstShotReviewRead,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["roster"])
 
@@ -43,3 +53,17 @@ async def get_first_shot(
     project_id: UUID, actor: FirstShotReviewer, session: SessionDep
 ) -> FirstShotPanel:
     return await first_shot_panel(session, actor, project_id)
+
+
+@router.post("/projects/{project_id}/first-shot/{worker_id}/review")
+async def review_first_shot(
+    project_id: UUID,
+    worker_id: UUID,
+    body: FirstShotReviewCreate,
+    actor: FirstShotReviewer,
+    session: SessionDep,
+    level: Annotated[Visibility, Depends(require_visibility(Visibility.SUMMARY))],
+) -> FirstShotReviewRead:
+    return FirstShotReviewRead.model_validate(
+        await review(session, actor, project_id, worker_id, body)
+    )

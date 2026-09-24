@@ -1,7 +1,8 @@
-from datetime import date
+from datetime import date, datetime
+from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.modules.roster.enums import FirstShotOutcome, PassReason
 
@@ -61,3 +62,29 @@ class FirstShotPanel(BaseModel):
     project_id: UUID
     policy_version: int
     items: list[FirstShotItem]
+
+
+class FirstShotReviewCreate(BaseModel):
+    """FR-4.7: an outcome, and a fixed reason code when passing."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: Literal["shortlisted", "contacted", "engaged", "passed"]
+    reason_code: PassReason | None = None
+
+    @model_validator(mode="after")
+    def _reason_only_when_passing(self) -> Self:
+        if (self.outcome == "passed") != (self.reason_code is not None):
+            raise ValueError("reason_code is required when passing and only then")
+        return self
+
+
+class FirstShotReviewRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    project_id: UUID
+    worker_id: UUID
+    outcome: FirstShotOutcome
+    reason_code: PassReason | None
+    pm_id: UUID | None
+    updated_at: datetime

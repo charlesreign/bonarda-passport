@@ -4,15 +4,17 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.audit.writer import write_audit
 from app.core.context import Actor
+from app.core.errors import NotFound
 from app.core.time import utcnow
 from app.modules.governance.schemas import MatchingRules
 from app.modules.governance.service import active_matching
 from app.modules.roster.candidates import card, project_needs, visible_project
-from app.modules.roster.enums import DECIDED_OUTCOMES
-from app.modules.roster.models import RosterProfile
+from app.modules.roster.enums import DECIDED_OUTCOMES, FirstShotOutcome
+from app.modules.roster.models import FirstShotReview, RosterProfile
 from app.modules.roster.repository import FirstShotRepository, RosterRepository
-from app.modules.roster.schemas import FirstShotItem, FirstShotPanel
+from app.modules.roster.schemas import FirstShotItem, FirstShotPanel, FirstShotReviewCreate
 from app.modules.roster.scoring import ProjectNeeds, availability_fit, rank
 
 
@@ -67,7 +69,10 @@ async def first_shot_panel(session: AsyncSession, actor: Actor, project_id: UUID
         profiles, project_id=project.id, needs=needs, rules=policy.rules, exclude=top | decided
     )
     await reviews.record_shown(project.id, [p.worker_id for p in panel], actor.user_id)
-    current = await reviews.for_project(project.id)
+    # Another PM may have reviewed a panel worker between the two reads above;
+    # populate_existing refreshes any identity-mapped rows so we return the
+    # committed outcome, not a stale one held in this session's identity map.
+    current = await reviews.for_project(project.id, populate_existing=True)
     return FirstShotPanel(
         project_id=project.id,
         policy_version=policy.version,
@@ -80,3 +85,36 @@ async def first_shot_panel(session: AsyncSession, actor: Actor, project_id: UUID
             for p in panel
         ],
     )
+
+
+async def review(
+    session: AsyncSession,
+    actor: Actor,
+    project_id: UUID,
+    worker_id: UUID,
+    data: FirstShotReviewCreate,
+) -> FirstShotReview:
+    project = await visible_project(session, actor, project_id)
+    row = await FirstShotRepository(session).get_for_update(project.id, worker_id)
+    if row is None:
+        raise NotFound(
+            "This worker has not been shown on this project's first-shot panel",
+            code="not_in_first_shot",
+        )
+    row.outcome = FirstShotOutcome(data.outcome)
+    row.reason_code = data.reason_code
+    row.pm_id = actor.user_id
+    await session.flush()
+    await write_audit(
+        session,
+        actor=actor,
+        action="first_shot.reviewed",
+        target_type="worker",
+        target_id=worker_id,
+        after={
+            "project_id": str(project.id),
+            "outcome": row.outcome.value,
+            "reason_code": row.reason_code.value if row.reason_code else None,
+        },
+    )
+    return row
