@@ -65,5 +65,6 @@ async def recalculate_standing(ctx: dict[str, Any]) -> int:
 
 
 async def rebuild_roster(ctx: dict[str, Any]) -> int:
-    async with ctx["sessionmaker"]() as session, session.begin():
+    # No session.begin(): rebuild_all commits per batch itself.
+    async with ctx["sessionmaker"]() as session:
         return await rebuild_all(session)

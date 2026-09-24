@@ -50,9 +50,22 @@ async def refresh_worker(session: AsyncSession, worker_id: UUID) -> bool:
     return True
 
 
-async def rebuild_all(session: AsyncSession) -> int:
-    """Nightly drift repair (spec §6.5). Workers are visited in id order."""
+async def rebuild_all(session: AsyncSession, *, batch_size: int = 100) -> int:
+    """Nightly drift repair (spec §6.5). Workers are visited in id order.
+
+    Commits after every `batch_size` refreshes (and once more at the end)
+    instead of relying on the caller's transaction. Each refresh takes an
+    advisory lock that is only released on commit, so a single transaction
+    over the whole roster would hold one lock per worker at once (~5,000 at
+    pilot size, close to Postgres's default lock table, sized by
+    max_locks_per_transaction * max_connections) and would make every event
+    handler for an already-visited worker wait until the entire rebuild
+    commits.
+    """
     worker_ids = await all_worker_ids(session)
-    for worker_id in worker_ids:
+    for index, worker_id in enumerate(worker_ids, start=1):
         await refresh_worker(session, worker_id)
+        if index % batch_size == 0:
+            await session.commit()
+    await session.commit()
     return len(worker_ids)

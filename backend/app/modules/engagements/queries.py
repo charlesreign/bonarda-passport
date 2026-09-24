@@ -43,13 +43,18 @@ async def standing_records(session: AsyncSession, worker_id: UUID) -> list[Stand
 async def engagement_activity(
     session: AsyncSession, worker_id: UUID, today: date
 ) -> EngagementActivity:
+    """`total` counts every history engagement, including one signed with a
+    future start date. `last_12m` and `last_engaged_on` only look at work
+    that has actually started (start_date <= today), so a future-dated
+    signed engagement does not inflate the recent count or set a
+    last-engaged date that hasn't happened yet."""
     since = today - timedelta(days=365)
     total, last_12m, last_on = (
         await session.execute(
             select(
                 func.count(),
-                func.count().filter(Engagement.start_date >= since),
-                func.max(Engagement.start_date),
+                func.count().filter(Engagement.start_date >= since, Engagement.start_date <= today),
+                func.max(Engagement.start_date).filter(Engagement.start_date <= today),
             ).where(Engagement.worker_id == worker_id, Engagement.status.in_(HISTORY_STATUSES))
         )
     ).one()

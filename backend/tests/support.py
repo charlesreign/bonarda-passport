@@ -279,9 +279,9 @@ POSITIVE_ANSWERS = {
 
 
 async def refresh_roster(session: AsyncSession) -> None:
-    """Rebuilds every roster row, as the nightly job does."""
+    """Rebuilds every roster row, as the nightly job does. rebuild_all
+    commits per batch itself, so no commit is needed here."""
     await rebuild_all(session)
-    await session.commit()
 
 
 async def make_feedback(
