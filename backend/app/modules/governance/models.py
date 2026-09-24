@@ -22,8 +22,9 @@ from app.modules.governance.enums import PolicyKind, PolicyStatus
 
 
 class PolicyConfig(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """A versioned rule set People Ops controls (NFR-5.1, NFR-9.2). Rows are
-    never edited after proposal except for status transitions."""
+    """A versioned rule set People Ops controls (NFR-5.1, NFR-9.2). Once
+    proposed, a row changes only through its status lifecycle (draft → active
+    → retired); the `policy_configs_guard` trigger (migration 0012) enforces it."""
 
     __tablename__ = "policy_configs"
 
@@ -55,4 +56,5 @@ class PolicyConfig(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ),
         CheckConstraint("activated_by_id <> created_by_id", name="two_person"),
         CheckConstraint("version > 0", name="version_positive"),
+        CheckConstraint("status = 'draft' OR activated_at IS NOT NULL", name="activated_when_live"),
     )
