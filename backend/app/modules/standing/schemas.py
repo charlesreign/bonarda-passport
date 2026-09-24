@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Any, ClassVar
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.outbox.events import DomainEvent
 from app.modules.governance.schemas import TierRule
@@ -56,3 +56,12 @@ class StandingExplanation(BaseModel):
     tiers: list[TierRule]
     factors: StandingFactors
     history: list[StandingChangeRead]
+
+
+class StandingOverrideCreate(BaseModel):
+    """Spec §7.2 / §8.1: a manual tier change always carries a reason."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tier: StandingTier
+    reason: str = Field(min_length=10, max_length=500)

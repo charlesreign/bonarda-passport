@@ -37,7 +37,16 @@ async def recalculate(
     new_tier = StandingTier(evaluation.tier)
     if new_tier is current:
         return None
-    change = StandingChangeRepository(session).add(
+    changes = StandingChangeRepository(session)
+    latest = await changes.latest_for_worker(worker_id)
+    if (
+        latest is not None
+        and latest.actor_id is not None
+        and latest.contributing_factors.get("evaluated_tier") == evaluation.tier
+    ):
+        # A People Ops override holds until the rules' own verdict moves.
+        return None
+    change = changes.add(
         StandingChange(
             worker_id=worker_id,
             previous_tier=current,

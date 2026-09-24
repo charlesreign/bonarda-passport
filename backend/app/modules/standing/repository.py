@@ -24,6 +24,10 @@ class StandingChangeRepository:
         )
         return list((await self.session.scalars(stmt)).all())
 
+    async def latest_for_worker(self, worker_id: UUID) -> StandingChange | None:
+        changes = await self.list_for_worker(worker_id, 1)
+        return changes[0] if changes else None
+
 
 class SkillEvidenceRepository:
     def __init__(self, session: AsyncSession) -> None:
