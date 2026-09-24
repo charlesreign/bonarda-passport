@@ -1,7 +1,9 @@
 import base64
+import copy
 import json
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -20,6 +22,7 @@ from app.modules.passport.enums import (
 )
 from app.modules.passport.models import Skill, SkillClaim
 from tests.support import (
+    _seed_policy_rows,
     bearer,
     make_project,
     make_ready_worker,
@@ -98,13 +101,39 @@ async def test_candidates_are_region_eligible_scored_and_summary_only(
     assert str(lea.id) not in {c["worker"]["worker_id"] for c in body["items"]}
 
 
+async def _small_pool_policy(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    """The seed excludes the top 10 candidates; tests use tiny pools."""
+    rules: dict[str, Any] = copy.deepcopy(
+        next(p["rules"] for p in _seed_policy_rows() if p["kind"] == "matching")
+    )
+    rules["first_shot"]["exclude_top_candidates"] = 0
+    author = await make_user(session, role=UserRole.PEOPLE_OPS)
+    approver = await make_user(session, role=UserRole.PEOPLE_OPS)
+    proposed = await client.post(
+        "/api/v1/policies/matching/versions",
+        json={"rules": rules},
+        headers=bearer(settings, author),
+    )
+    activated = await client.post(
+        f"/api/v1/policies/matching/versions/{proposed.json()['version']}/activate",
+        headers=bearer(settings, approver),
+    )
+    assert activated.status_code == 200
+
+
 async def test_withdrawing_cross_region_consent_removes_a_candidate(
     client: AsyncClient, session: AsyncSession, settings: Settings, drain: Drain
 ) -> None:
+    # A small-pool matching policy so a lone eligible worker is actually shown
+    # on the first-shot panel too (the seed policy excludes the top 10).
+    await _small_pool_policy(client, session, settings)
     pm = await make_user(session, role=UserRole.PM)
     project = await make_project(session, staff=[pm], data_region="EU")
     worker, account = await make_ready_worker(session, data_region="GH")
     worker_headers = bearer(settings, account)
+    first_shot_url = f"/api/v1/projects/{project.id}/first-shot"
     await client.put(
         "/api/v1/workers/me/consents/cross_region_matching",
         json={"granted": True},
@@ -112,6 +141,7 @@ async def test_withdrawing_cross_region_consent_removes_a_candidate(
     )
     await drain()
     with_consent = await client.get(_url(project.id), headers=bearer(settings, pm))
+    with_consent_panel = await client.get(first_shot_url, headers=bearer(settings, pm))
 
     await client.put(
         "/api/v1/workers/me/consents/cross_region_matching",
@@ -120,9 +150,14 @@ async def test_withdrawing_cross_region_consent_removes_a_candidate(
     )
     await drain()
     without_consent = await client.get(_url(project.id), headers=bearer(settings, pm))
+    without_consent_panel = await client.get(first_shot_url, headers=bearer(settings, pm))
 
     assert [c["worker"]["worker_id"] for c in with_consent.json()["items"]] == [str(worker.id)]
     assert without_consent.json()["items"] == []
+    assert [i["worker"]["worker_id"] for i in with_consent_panel.json()["items"]] == [
+        str(worker.id)
+    ]
+    assert without_consent_panel.json()["items"] == []
 
 
 async def test_filters_narrow_the_pool(
