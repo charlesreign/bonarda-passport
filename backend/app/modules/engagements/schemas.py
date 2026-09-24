@@ -222,6 +222,14 @@ class StandingRecord(BaseModel):
     excluded: bool
 
 
+class EngagementActivity(BaseModel):
+    """How much a worker has worked with Bonarda, for the roster (spec §6.1)."""
+
+    total: int
+    last_12m: int
+    last_engaged_on: date | None
+
+
 def engagement_read(engagement: Engagement, feedback: Feedback | None) -> EngagementRead:
     return EngagementRead(
         id=engagement.id,

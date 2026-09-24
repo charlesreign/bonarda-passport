@@ -26,6 +26,7 @@ from app.modules.identity.tokens import issue_access_token
 from app.modules.integrations.service import sign_payload
 from app.modules.passport.enums import OnboardingState, WorkerStatus, WorkerType
 from app.modules.passport.models import Skill, SkillClaim, Worker
+from app.modules.roster.service import rebuild_all
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
@@ -275,6 +276,12 @@ POSITIVE_ANSWERS = {
     "handled_scope_changes_without_escalation": True,
     "would_reengage": True,
 }
+
+
+async def refresh_roster(session: AsyncSession) -> None:
+    """Rebuilds every roster row, as the nightly job does."""
+    await rebuild_all(session)
+    await session.commit()
 
 
 async def make_feedback(

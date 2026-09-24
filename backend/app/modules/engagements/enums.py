@@ -34,3 +34,11 @@ OPEN_STATUSES = frozenset(
         EngagementStatus.ACTIVE,
     }
 )
+
+# Work that has actually happened: a signed contract or later (FR-5.3). The
+# same rule decides reactivation history and roster engagement counts.
+HISTORY_STATUSES = (
+    EngagementStatus.SIGNED,
+    EngagementStatus.ACTIVE,
+    EngagementStatus.COMPLETED,
+)

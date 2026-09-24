@@ -174,3 +174,20 @@ class WorkerInvited(DomainEvent):
 class EngagementReadiness(BaseModel):
     onboarding_complete: bool
     gaps: list[str]
+
+
+class RosterWorker(BaseModel):
+    """What the roster projects from a passport (spec §6.1 roster_profiles)."""
+
+    worker_id: UUID
+    display_name: str
+    status: WorkerStatus
+    onboarding_state: OnboardingState
+    data_region: str
+    cross_region_ok: bool
+    standing_tier: StandingTier
+    skill_ids: list[UUID]
+    verified_skill_ids: list[UUID]
+    base_location: str | None
+    availability_status: AvailabilityStatus
+    available_from: date | None

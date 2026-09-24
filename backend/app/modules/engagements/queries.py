@@ -1,13 +1,14 @@
 """Read functions other modules use through engagements.service."""
 
+from datetime import date, timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.engagements.enums import EngagementStatus
+from app.modules.engagements.enums import HISTORY_STATUSES, EngagementStatus
 from app.modules.engagements.models import Engagement, Feedback
-from app.modules.engagements.schemas import StandingRecord
+from app.modules.engagements.schemas import EngagementActivity, StandingRecord
 
 
 async def standing_records(session: AsyncSession, worker_id: UUID) -> list[StandingRecord]:
@@ -37,3 +38,23 @@ async def standing_records(session: AsyncSession, worker_id: UUID) -> list[Stand
         )
         for row in await session.execute(stmt)
     ]
+
+
+async def engagement_activity(
+    session: AsyncSession, worker_id: UUID, today: date
+) -> EngagementActivity:
+    since = today - timedelta(days=365)
+    total, last_12m, last_on = (
+        await session.execute(
+            select(
+                func.count(),
+                func.count().filter(Engagement.start_date >= since),
+                func.max(Engagement.start_date),
+            ).where(Engagement.worker_id == worker_id, Engagement.status.in_(HISTORY_STATUSES))
+        )
+    ).one()
+    return EngagementActivity(total=total, last_12m=last_12m, last_engaged_on=last_on)
+
+
+async def engagement_worker_id(session: AsyncSession, engagement_id: UUID) -> UUID | None:
+    return await session.scalar(select(Engagement.worker_id).where(Engagement.id == engagement_id))

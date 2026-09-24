@@ -67,3 +67,16 @@ name = "passport and engagements never import standing or governance"
 type = "forbidden"
 source_modules = ["app.modules.passport", "app.modules.engagements"]
 forbidden_modules = ["app.modules.standing", "app.modules.governance"]
+
+[[tool.importlinter.contracts]]
+name = "no module imports roster"
+type = "forbidden"
+source_modules = [
+    "app.modules.identity",
+    "app.modules.passport",
+    "app.modules.engagements",
+    "app.modules.standing",
+    "app.modules.governance",
+    "app.modules.integrations",
+]
+forbidden_modules = ["app.modules.roster"]

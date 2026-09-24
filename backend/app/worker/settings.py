@@ -21,6 +21,7 @@ from app.worker.jobs import (
     expire_access_grants,
     flag_stuck_engagements,
     purge_outbox,
+    rebuild_roster,
     recalculate_standing,
     run_event_handler,
 )
@@ -95,6 +96,7 @@ class WorkerSettings:
         cron(activate_due_engagements, minute={0}),
         cron(flag_stuck_engagements, minute=set(range(0, 60, 15))),
         cron(recalculate_standing, hour={3}, minute={0}),
+        cron(rebuild_roster, hour={2}, minute={0}),
     ]
     on_startup = startup
     on_shutdown = shutdown
