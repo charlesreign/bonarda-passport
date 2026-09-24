@@ -94,3 +94,7 @@ async def staffed_project(
 
 async def staffed_project_ids(session: AsyncSession, user_id: UUID) -> list[UUID]:
     return [p.id for p in await ProjectRepository(session).list_staffed_by(user_id)]
+
+
+async def engagement_feedback_id(session: AsyncSession, engagement_id: UUID) -> UUID | None:
+    return await session.scalar(select(Feedback.id).where(Feedback.engagement_id == engagement_id))

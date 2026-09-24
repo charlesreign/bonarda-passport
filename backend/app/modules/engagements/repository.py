@@ -223,3 +223,8 @@ class EngagementRepository:
             .with_for_update(skip_locked=True)
         )
         return list((await self.session.scalars(stmt)).all())
+
+    async def feedback_for_update(self, feedback_id: UUID) -> Feedback | None:
+        return await self.session.scalar(
+            select(Feedback).where(Feedback.id == feedback_id).with_for_update()
+        )
