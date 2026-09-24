@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     # has its EngagementActivated event re-emitted by the same 15-minute job.
     payroll_signal_grace_minutes: int = 30
 
+    # Demo routes (app/demo.py): sign in as a seeded account, simulate e-sign.
+    # Honoured only in dev/test.
+    demo_mode: bool = False
+
     # Spec §8.5: a dispute is due this many days after it is filed (seed: 30).
     dispute_sla_days: int = 30
     # The daily digest lists open disputes due within this many days.
