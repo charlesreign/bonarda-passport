@@ -1,5 +1,6 @@
 import copy
 from typing import Any
+from uuid import UUID
 
 import pytest
 from httpx import AsyncClient
@@ -86,6 +87,7 @@ async def test_shortlisting_grants_detail_and_is_audited(
         await session.scalars(select(AuditLog).where(AuditLog.action == "first_shot.reviewed"))
     ).one()
     assert (audit.actor_id, str(audit.target_id)) == (pm.id, worker_id)
+    assert audit.before == {"outcome": "shown"}
     assert audit.after == {
         "project_id": str(project.id),
         "outcome": "shortlisted",
@@ -116,9 +118,12 @@ async def test_detail_ends_when_staffing_ends(
     client: AsyncClient, session: AsyncSession, settings: Settings
 ) -> None:
     pm, project, worker_id = await _panel(client, session, settings)
-    await client.post(
+    engaged = await client.post(
         _review_url(project, worker_id), json={"outcome": "engaged"}, headers=bearer(settings, pm)
     )
+    assert engaged.status_code == 200
+    assert await _view(client, settings, pm, worker_id) == "detail"
+
     await session.execute(update(ProjectStaff).values(active_to=utcnow()))
     await session.commit()
 
@@ -149,3 +154,39 @@ async def test_reviews_need_a_shown_worker_and_a_staffed_pm(
         expected = (404, "project_not_found")
 
     assert (response.status_code, response.json()["code"]) == expected
+
+
+async def test_review_rejects_a_worker_no_longer_eligible_for_the_region(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    pm, project, worker_id = await _panel(client, session, settings)
+    account = (
+        await session.scalars(select(UserAccount).where(UserAccount.worker_id == UUID(worker_id)))
+    ).one()
+    # A detail outcome first, so the worker stays visible to the PM (via the
+    # first-shot visibility source) after they withdraw consent below.
+    contacted = await client.post(
+        _review_url(project, worker_id), json={"outcome": "contacted"}, headers=bearer(settings, pm)
+    )
+    assert contacted.status_code == 200
+
+    await client.put(
+        "/api/v1/workers/me/consents/cross_region_matching",
+        json={"granted": False},
+        headers=bearer(settings, account),
+    )
+    await refresh_roster(session)
+
+    shortlisted = await client.post(
+        _review_url(project, worker_id),
+        json={"outcome": "shortlisted"},
+        headers=bearer(settings, pm),
+    )
+    passed = await client.post(
+        _review_url(project, worker_id),
+        json={"outcome": "passed", "reason_code": "rate_mismatch"},
+        headers=bearer(settings, pm),
+    )
+
+    assert (shortlisted.status_code, shortlisted.json()["code"]) == (409, "worker_not_eligible")
+    assert passed.status_code == 200

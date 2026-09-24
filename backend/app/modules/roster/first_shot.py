@@ -6,12 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit.writer import write_audit
 from app.core.context import Actor
-from app.core.errors import NotFound
+from app.core.errors import Conflict, NotFound
 from app.core.time import utcnow
 from app.modules.governance.schemas import MatchingRules
 from app.modules.governance.service import active_matching
 from app.modules.roster.candidates import card, project_needs, visible_project
-from app.modules.roster.enums import DECIDED_OUTCOMES, FirstShotOutcome
+from app.modules.roster.enums import DECIDED_OUTCOMES, DETAIL_OUTCOMES, FirstShotOutcome
 from app.modules.roster.models import FirstShotReview, RosterProfile
 from app.modules.roster.repository import FirstShotRepository, RosterRepository
 from app.modules.roster.schemas import FirstShotItem, FirstShotPanel, FirstShotReviewCreate
@@ -101,7 +101,18 @@ async def review(
             "This worker has not been shown on this project's first-shot panel",
             code="not_in_first_shot",
         )
-    row.outcome = FirstShotOutcome(data.outcome)
+    outcome = FirstShotOutcome(data.outcome)
+    if outcome in DETAIL_OUTCOMES:
+        eligible_ids = {
+            p.worker_id for p in await RosterRepository(session).eligible(project.data_region)
+        }
+        if worker_id not in eligible_ids:
+            raise Conflict(
+                "This worker is no longer eligible for this project's data region",
+                code="worker_not_eligible",
+            )
+    before_outcome = row.outcome
+    row.outcome = outcome
     row.reason_code = data.reason_code
     row.pm_id = actor.user_id
     await session.flush()
@@ -111,6 +122,7 @@ async def review(
         action="first_shot.reviewed",
         target_type="worker",
         target_id=worker_id,
+        before={"outcome": before_outcome.value},
         after={
             "project_id": str(project.id),
             "outcome": row.outcome.value,
