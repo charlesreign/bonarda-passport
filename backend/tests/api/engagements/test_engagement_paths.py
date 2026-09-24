@@ -99,3 +99,25 @@ async def test_a_first_time_worker_with_a_profile_gap_is_still_not_ready(
     )
 
     assert (response.status_code, response.json()["code"]) == (409, "worker_not_ready")
+
+
+async def test_prefill_agrees_with_reactivation_that_unsigned_is_not_history(
+    client: AsyncClient, session: AsyncSession, settings: Settings
+) -> None:
+    pm = await make_user(session, role=UserRole.PM)
+    project = await make_project(session, staff=[pm], name="New")
+    worker, _ = await make_ready_worker(session)
+    await make_engagement(
+        session,
+        worker_id=worker.id,
+        project_id=(await make_project(session, name="Pending")).id,
+        status=EngagementStatus.AWAITING_SIGNATURE,
+    )
+
+    response = await client.get(
+        f"/api/v1/workers/{worker.id}/reactivation-prefill",
+        params={"project_id": str(project.id)},
+        headers=bearer(settings, pm),
+    )
+
+    assert (response.status_code, response.json()["code"]) == (404, "no_prior_engagement")
