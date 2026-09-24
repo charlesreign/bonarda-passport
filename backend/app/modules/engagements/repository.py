@@ -9,6 +9,12 @@ from app.modules.engagements.enums import OPEN_STATUSES, EngagementStatus
 from app.modules.engagements.models import Engagement, Feedback, Project, ProjectStaff
 from app.modules.identity.service import active_pm_ids
 
+_HISTORY_STATUSES = (
+    EngagementStatus.SIGNED,
+    EngagementStatus.ACTIVE,
+    EngagementStatus.COMPLETED,
+)
+
 
 class ProjectRepository:
     def __init__(self, session: AsyncSession) -> None:
@@ -126,12 +132,13 @@ class EngagementRepository:
         )
 
     async def has_history(self, worker_id: UUID) -> bool:
+        """Work that has actually happened: a signed contract or later (FR-5.3)."""
         return bool(
             await self.session.scalar(
                 select(
                     exists().where(
                         Engagement.worker_id == worker_id,
-                        Engagement.status != EngagementStatus.CANCELLED,
+                        Engagement.status.in_(_HISTORY_STATUSES),
                     )
                 )
             )
