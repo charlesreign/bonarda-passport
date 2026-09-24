@@ -60,6 +60,10 @@ async def test_feedback_raises_standing_and_a_policy_change_is_explained(
     # 1. One review: tier 1; the skill is not verified yet.
     await review(ama, "Volta")
     assert (await standing())["tier"] == "tier_1"
+    me_after_first_review = await client.get(
+        "/api/v1/workers/me", headers=bearer(settings, account)
+    )
+    assert me_after_first_review.json()["skills"][0]["verification_status"] == "self_reported"
 
     # 2. Two more reviews from a second PM: tier 2 and a verified skill.
     await review(kwame, "Tema")
