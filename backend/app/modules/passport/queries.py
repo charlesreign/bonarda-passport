@@ -103,9 +103,16 @@ async def claimed_skill_ids(session: AsyncSession, worker_id: UUID) -> set[UUID]
 
 
 async def lock_standing_tier(session: AsyncSession, worker_id: UUID) -> StandingTier | None:
-    """Row-locks the worker so concurrent recalculations of one worker serialize."""
+    """Row-locks the worker so concurrent recalculations of one worker serialize.
+    Uses FOR NO KEY UPDATE, not plain FOR UPDATE: a child insert (e.g. into
+    skill_evidence) takes a FOR KEY SHARE lock on this row for its FK check.
+    FOR NO KEY UPDATE still conflicts with itself, so recalculations of one
+    worker still serialize, but it does not conflict with FOR KEY SHARE, so it
+    can't deadlock against a concurrent handler that locks a child row first
+    and then inserts (which needs FOR KEY SHARE here) while recalculate_all
+    still holds this lock waiting on that same child row."""
     return await session.scalar(
-        select(Worker.standing_tier).where(Worker.id == worker_id).with_for_update()
+        select(Worker.standing_tier).where(Worker.id == worker_id).with_for_update(key_share=True)
     )
 
 
