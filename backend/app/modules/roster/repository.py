@@ -6,7 +6,8 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.roster.models import RosterProfile
+from app.modules.roster.enums import FirstShotOutcome
+from app.modules.roster.models import FirstShotReview, RosterProfile
 
 
 class RosterRepository:
@@ -57,3 +58,41 @@ class RosterRepository:
         if q:
             stmt = stmt.where(RosterProfile.display_name.icontains(q, autoescape=True))
         return list((await self.session.scalars(stmt)).all())
+
+
+class FirstShotRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def for_project(self, project_id: UUID) -> dict[UUID, FirstShotReview]:
+        rows = await self.session.scalars(
+            select(FirstShotReview).where(FirstShotReview.project_id == project_id)
+        )
+        return {r.worker_id: r for r in rows.all()}
+
+    async def record_shown(self, project_id: UUID, worker_ids: Sequence[UUID], pm_id: UUID) -> None:
+        """Impression logging (FR-4.6). An existing outcome is never changed."""
+        if not worker_ids:
+            return
+        await self.session.execute(
+            pg_insert(FirstShotReview)
+            .values(
+                [
+                    {
+                        "project_id": project_id,
+                        "worker_id": worker_id,
+                        "pm_id": pm_id,
+                        "outcome": FirstShotOutcome.SHOWN,
+                    }
+                    for worker_id in worker_ids
+                ]
+            )
+            .on_conflict_do_nothing(constraint="uq_first_shot_reviews_project_worker")
+        )
+
+    async def get_for_update(self, project_id: UUID, worker_id: UUID) -> FirstShotReview | None:
+        return await self.session.scalar(
+            select(FirstShotReview)
+            .where(FirstShotReview.project_id == project_id, FirstShotReview.worker_id == worker_id)
+            .with_for_update()
+        )

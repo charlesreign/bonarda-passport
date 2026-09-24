@@ -3,6 +3,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from app.modules.roster.enums import FirstShotOutcome, PassReason
+
 
 class ScoreComponent(BaseModel):
     weight: float
@@ -44,3 +46,18 @@ class Candidate(BaseModel):
 class CandidatePage(BaseModel):
     items: list[Candidate]
     next_cursor: str | None
+
+
+class FirstShotItem(BaseModel):
+    worker: CandidateCard
+    outcome: FirstShotOutcome
+    reason_code: PassReason | None
+
+
+class FirstShotPanel(BaseModel):
+    """The mandatory first-shot resource (FR-4.6): shown on the same page as
+    candidates, never hideable."""
+
+    project_id: UUID
+    policy_version: int
+    items: list[FirstShotItem]

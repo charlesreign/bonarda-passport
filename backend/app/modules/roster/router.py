@@ -8,11 +8,13 @@ from app.core.db.session import SessionDep
 from app.modules.identity.service import Permission, require_permission
 from app.modules.passport.service import AvailabilityStatus
 from app.modules.roster.candidates import CandidateFilters, search
-from app.modules.roster.schemas import CandidatePage
+from app.modules.roster.first_shot import first_shot_panel
+from app.modules.roster.schemas import CandidatePage, FirstShotPanel
 
 router = APIRouter(prefix="/api/v1", tags=["roster"])
 
 RosterSearcher = Annotated[Actor, Depends(require_permission(Permission.ROSTER_SEARCH))]
+FirstShotReviewer = Annotated[Actor, Depends(require_permission(Permission.FIRST_SHOT_REVIEW))]
 
 
 @router.get("/projects/{project_id}/candidates")
@@ -34,3 +36,10 @@ async def list_candidates(
         q=q,
     )
     return await search(session, actor, project_id, filters, cursor, limit)
+
+
+@router.get("/projects/{project_id}/first-shot")
+async def get_first_shot(
+    project_id: UUID, actor: FirstShotReviewer, session: SessionDep
+) -> FirstShotPanel:
+    return await first_shot_panel(session, actor, project_id)
