@@ -102,7 +102,8 @@ async def test_candidates_first_shot_and_shortlisting(
     detail = await client.get(f"/api/v1/workers/{shown['Esi']}", headers=headers)
     assert detail.json()["view"] == "detail"
 
-    # 4. Esi becomes unavailable; the roster follows and she leaves the candidates.
+    # 4. Esi becomes unavailable; the roster follows, and she stays in the
+    # candidates with 0 availability points.
     await client.patch(
         "/api/v1/workers/me",
         json={"availability_status": "unavailable"},
