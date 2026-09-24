@@ -48,14 +48,21 @@ bonarda-passport/
 │   │   │   │   ├── router.py
 │   │   │   │   └── service.py
 │   │   │   ├── engagements/               # projects, staffing, engagements, contracts, feedback (Plan 2B)
-│   │   │   │   ├── enums.py, models.py, repository.py, schemas.py
+│   │   │   │   ├── enums.py, models.py, repository.py, schemas.py, queries.py
 │   │   │   │   ├── projects.py, visibility.py, engagements.py, contracts.py
 │   │   │   │   ├── payroll.py, feedback.py, stuck.py, handlers.py
 │   │   │   │   ├── router.py
 │   │   │   │   └── service.py
-│   │   │   ├── standing/                  # + rules.py (pure tier evaluation)
+│   │   │   ├── governance/                # policy_configs, two-person activation (Plan 3A); disputes etc. Plan 4
+│   │   │   │   ├── enums.py, models.py, repository.py, schemas.py
+│   │   │   │   ├── policies.py, router.py
+│   │   │   │   └── service.py
+│   │   │   ├── standing/                  # tier rules engine, standing changes, skill evidence (Plan 3A)
+│   │   │   │   ├── rules.py, models.py, repository.py, schemas.py
+│   │   │   │   ├── recalculation.py, evidence.py, explanation.py
+│   │   │   │   ├── handlers.py, router.py
+│   │   │   │   └── service.py
 │   │   │   ├── roster/                    # + scoring.py, first_shot.py (pure functions)
-│   │   │   ├── governance/                # + policy_schemas.py (per-kind rule validation)
 │   │   │   └── integrations/
 │   │   │       ├── esign.py               # EsignAdapter protocol + FakeEsignAdapter (never signs by itself)
 │   │   │       ├── payroll.py             # PayrollAdapter protocol + FakePayrollAdapter

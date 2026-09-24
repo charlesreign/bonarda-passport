@@ -9,8 +9,9 @@ The spec's MVA (§10) is delivered as six sequential plans. Each plan ends with 
 | 1 | `2026-09-22-bonarda-01-backend-foundation.md` | Backend scaffold, CI checks, shared kernel (settings, DB, problem+json errors, correlation IDs, audit writer, transactional outbox, relay, idempotent handlers, Arq worker), `identity` module (access/refresh tokens, magic links, staff OIDC with MFA check, role permission matrix, `VisibilityPolicy`, access grants, SCIM revocation) | — | Implemented on `feat/backend-foundation` |
 | 2A | `2026-09-23-bonarda-02a-worker-passport.md` | `passport` (workers, skills taxonomy and claims, profile views, onboarding, consents, PM invitations), SMTP mailer, sign-in mail sent by the worker, per-account locale, Plan 1 identity carry-forward fixes | 1 | Implemented on `feat/worker-passport` |
 | 2B | `2026-09-24-bonarda-02b-engagements.md` | `engagements` (projects, staffing, first-time engagements, reactivation prefill and create, contracts via fake e-sign, e-sign webhook, payroll signal, completion, feedback, stuck detector), e-sign/payroll adapters, PM visibility sources, `AccessRevoked` → end `project_staff` | 2A | Written |
-| 3 | `…-03-fairness-engine.md` | `policy_configs` with two-person activation, `standing` (rules engine, skill evidence, append-only standing changes), `roster` (read-model, scoring, first-shot, impression logging) | 2B | Not written |
-| 4 | `…-04-governance.md` | Disputes with SLA, standing overrides, concentration rollups and alerts, audit-log API, retention enforcement and anonymization | 3 | Not written |
+| 3A | `2026-09-25-bonarda-03a-standing.md` | governance policies (versioned, two-person activation), standing (rules engine, append-only standing changes, skill evidence and verification, re-evaluation on activation and nightly, explanation API) | 2B | Written |
+| 3B | `…-03b-roster.md` | roster (read-model, scoring, candidates, first-shot, impression logging, first-shot visibility source) | 3A | Not written |
+| 4 | `…-04-governance.md` | Disputes with SLA, standing overrides, concentration rollups and alerts, audit-log API, retention enforcement and anonymization | 3B | Not written |
 | 5 | `…-05-frontend.md` | Vite/React app: generated API client, providers, `/passport`, `/console`, `/ops` bundles, i18n (en/fr), size budgets, Playwright + axe | 1–4 (API contract) | Not written |
 | 6 | `…-06-demo-and-operations.md` | Docker Compose with Keycloak + Mailpit, real `AuthlibOidcProvider` verification against Keycloak, seed data, Prometheus metrics and custom counters, Locust profile | 1–5 | Not written |
 
@@ -45,9 +46,15 @@ Each item below must become a named task with a test in the plan listed.
 | pre-live (real adapters) | Adapter call timeouts; the engagement row lock is held across the external e-sign/payroll call. |
 | 4 | `send_contract` retries into dead-letter when the worker account is gone; cancel the engagement instead. |
 | any | Reactivation replay ignores body differences (same key, different terms returns the original); consider 422 on mismatch. |
-| 3 | `has_history` counts unsigned in-flight engagements, which skews FR-5.3 first-time vs repeat metrics; reactivation also re-checks profile gaps. |
 | 4 | A role change at OIDC login ends staffing and revokes sessions but, unlike SCIM `_revoke`, does not close open access grants or write an `access.revoked` audit row (FR-9.5). A grant only acts for the PM role, but an unexpired one revives if the IdP makes the user a PM again. Reuse SCIM's revocation path from the OIDC reconcile. |
 | any | Payroll-signal recovery measures its grace period from `billable_start_at`, not from activation. An engagement signed early is activated by the hourly job up to ~1 h after midnight UTC, so the next 15-min run can re-emit `EngagementActivated` while the original is still in the outbox: harmless (the handler is idempotent) but it writes a spurious `engagement.payroll_signal_retried` audit row and warning. Key recovery off the activation time. |
+| 4 | Concentration and retention policy kinds have no rules schema yet; proposing one answers 400 `policy_kind_not_supported`. |
+| 4 | An upheld dispute must set `feedback.excluded_from_standing` and recalculate the worker (spec §7.7 `DisputeResolved`). |
+| 4 | Notify the worker when their standing changes (spec §7.7 `notify_worker` on `StandingChanged`). |
+| 4 | Standing overrides (`POST /standing-overrides`) write `standing_changes` with `actor_id` and `override_reason`; the table already has both columns. |
+| any | `recalculate_all` re-evaluates every worker in one transaction; batch it if the pool grows well past the pilot's 5,000 profiles. |
+| any | Skill verification never reverses. Raising the policy threshold does not un-verify skills already verified. |
+| any | Skill verification and tier recalculation each take locks in a fixed order, and future code that touches them must keep it: workers are locked `FOR NO KEY UPDATE`, in id order; skill claims are locked `FOR UPDATE`, sorted by skill id. |
 
 ## Implementation deviations from the spec (recorded as they happen)
 
@@ -66,3 +73,9 @@ Each item below must become a named task with a test in the plan listed.
 | 2B | Reactivation replays a concurrent duplicate `Idempotency-Key` from the same PM with 200 | The spec says "idempotent on key"; the reason is double-clicks |
 | 2B | `ESIGN_WEBHOOK_SECRET` is a new required setting | HMAC-signs and verifies the e-sign webhook (spec §8.1) |
 | 2B | Any staffed PM can edit a project's staff list (spec: people_ops or the owning PM) | Projects record only `created_by_id` (the creator, possibly people_ops), not an owning PM; every staffed PM is treated as an owner. Revisit if staffing needs tighter control |
+| 3A | The policy activation path is `POST /policies/{kind}/versions/{v}/activate`, not `:activate` | The same plain-REST convention as Plan 2B |
+| 3A | `skill_evidence` is keyed by `(worker_id, skill_id, reviewer_id)`, not `skill_claim_id` | A self-reported claim can be deleted and re-added; evidence must neither block that nor be lost |
+| 3A | Standing is also re-evaluated nightly at 03:00 UTC | Tiers must fall when feedback ages out of the window, and no event fires for that |
+| 3A | `standing_changes.actor_id` has no `ON DELETE SET NULL` | A cascading update would hit the append-only trigger; staff accounts are revoked, never deleted |
+| 3A | `GET /workers/{id}/standing` (detail visibility) exists alongside `GET /workers/me/standing` | Spec §7.1 gives detail viewers standing factors |
+| 3A | Reactivation does not re-check profile gaps (location, languages, skills); first-time engagement does | FR-4.3's fast path for returning workers |
