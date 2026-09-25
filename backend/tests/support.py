@@ -18,7 +18,14 @@ from app.core.outbox.models import OutboxEvent
 from app.core.outbox.processing import process_event
 from app.core.outbox.registry import HandlerRegistry
 from app.core.time import utcnow
-from app.modules.engagements.enums import EngagementPath, EngagementStatus, WorkMode
+from app.modules.engagements.enums import (
+    DECLINE_CAUSES,
+    CancelCause,
+    DeclineReason,
+    EngagementPath,
+    EngagementStatus,
+    WorkMode,
+)
 from app.modules.engagements.models import Engagement, Feedback, Project, ProjectStaff
 from app.modules.governance.enums import DisputeResolution, DisputeStatus, DisputeTargetType
 from app.modules.governance.models import Dispute, PolicyConfig
@@ -179,7 +186,10 @@ async def make_engagement(
     work_mode: WorkMode = WorkMode.REMOTE,
     scope: str = "Build the data pipeline",
     completed_at: datetime | None = None,
+    cancel_cause: CancelCause | None = None,
 ) -> Engagement:
+    if status is EngagementStatus.CANCELLED and cancel_cause is None:
+        cancel_cause = CancelCause.WORKER_ACCOUNT_MISSING
     engagement = Engagement(
         worker_id=worker_id,
         project_id=project_id,
@@ -193,6 +203,9 @@ async def make_engagement(
         contract_terms={"scope": scope, "access_notes": None},
         confirmed_at=utcnow(),
         completed_at=completed_at or (utcnow() if status is EngagementStatus.COMPLETED else None),
+        cancel_cause=cancel_cause,
+        declined_at=utcnow() if cancel_cause in DECLINE_CAUSES else None,
+        decline_reason=DeclineReason.OTHER if cancel_cause is CancelCause.WORKER_DECLINED else None,
     )
     session.add(engagement)
     await session.commit()

@@ -17,8 +17,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  ApiError,
   api,
   type Consent,
+  type DeclineReason,
   type DisputePage,
   type Engagement,
   type Standing,
@@ -27,6 +29,7 @@ import {
 import {
   Avatar,
   Card,
+  DeclineSummary,
   Empty,
   ErrorNote,
   InfoNote,
@@ -257,6 +260,79 @@ function StandingCard() {
 
 const IN_FLIGHT = ["pending_signature", "awaiting_signature"];
 
+const DECLINE_REASONS: DeclineReason[] = ["rate", "dates", "scope", "availability", "other"];
+
+function DeclineOffer({ engagement }: { engagement: Engagement }) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const fieldId = useId();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState<DeclineReason | "">("");
+  const [note, setNote] = useState("");
+  const decline = useMutation({
+    mutationFn: () =>
+      api<Engagement>(`/workers/me/engagements/${engagement.id}/decline`, {
+        method: "POST",
+        body: { reason, note: note.trim() || null },
+      }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["engagements", engagement.worker_id] }),
+  });
+  const tooLate = decline.error instanceof ApiError && decline.error.code === "engagement_not_declinable";
+  if (!open)
+    return (
+      <button className="small secondary" onClick={() => setOpen(true)}>
+        <X size={16} aria-hidden="true" />
+        {t("passport.decline.open")}
+      </button>
+    );
+  return (
+    <form
+      className="panel-soft top-gap"
+      onSubmit={(event) => {
+        event.preventDefault();
+        decline.mutate();
+      }}
+    >
+      <label htmlFor={`${fieldId}-reason`}>{t("passport.decline.reason")}</label>
+      <select
+        id={`${fieldId}-reason`}
+        required
+        value={reason}
+        onChange={(event) => setReason(event.target.value as DeclineReason)}
+      >
+        <option value="" disabled>
+          {t("passport.decline.pick")}
+        </option>
+        {DECLINE_REASONS.map((r) => (
+          <option key={r} value={r}>
+            {t(`declineReason.${r}`)}
+          </option>
+        ))}
+      </select>
+      <label htmlFor={`${fieldId}-note`} className="top-gap">
+        {t("passport.decline.note")}
+      </label>
+      <textarea
+        id={`${fieldId}-note`}
+        maxLength={500}
+        value={note}
+        onChange={(event) => setNote(event.target.value)}
+      />
+      <p className="muted small-text">{t("passport.decline.count", { count: note.length })}</p>
+      <InfoNote>{t("passport.decline.privacy")}</InfoNote>
+      <div className="row wrap top-gap">
+        <button type="submit" className="small" disabled={!reason || decline.isPending}>
+          {decline.isPending ? t("passport.decline.sending") : t("passport.decline.confirm")}
+        </button>
+        <button type="button" className="small secondary" onClick={() => setOpen(false)}>
+          {t("common.cancel")}
+        </button>
+      </div>
+      <ErrorNote error={tooLate ? new Error(t("passport.decline.tooLate")) : decline.error} />
+    </form>
+  );
+}
+
 /** The freelancer's side of the e-signature step. In production the provider
  * emails the contract; in the demo this card plays that role. */
 function ContractToSign({ engagement }: { engagement: Engagement }) {
@@ -269,42 +345,50 @@ function ContractToSign({ engagement }: { engagement: Engagement }) {
         void queryClient.invalidateQueries({ queryKey: key });
     },
   });
-  if (engagement.status === "pending_signature")
-    return (
-      <p className="muted small-text row top-gap" role="status">
-        <HourglassMedium size={16} aria-hidden="true" />
-        {t("passport.contract.preparing")}
-      </p>
-    );
+  // One tree for both statuses, with DeclineOffer always in the same place:
+  // the list polls while the contract is sent, and a status change must not
+  // unmount a half-filled decline form.
   return (
-    <div className="panel-soft top-gap" style={{ borderLeft: "3px solid var(--color-highlight)" }}>
-      <p className="row" style={{ fontWeight: 650 }}>
-        <PenNib size={18} aria-hidden="true" />
-        {t("passport.contract.ready")}
-      </p>
-      <dl className="meta top-gap" style={{ margin: 0 }}>
-        <span>
-          <strong>{t("engagement.scope")}:</strong>&nbsp;{engagement.contract_terms.scope}
-        </span>
-        <span>
-          <strong>{t("engagement.start")}:</strong>&nbsp;{date(engagement.start_date)}
-        </span>
-        <span className="num">
-          <strong>{t("engagement.rate")}:</strong>&nbsp;
-          {t("engagement.perDay", { amount: money(engagement.rate, engagement.currency) })}
-        </span>
-        <span>
-          <strong>{t("engagement.mode")}:</strong>&nbsp;{t(`workMode.${engagement.work_mode}`)}
-        </span>
-      </dl>
-      <div className="row wrap top-gap">
-        <button className="small" onClick={() => sign.mutate()} disabled={sign.isPending}>
-          <PenNib size={16} aria-hidden="true" />
-          {sign.isPending ? t("passport.contract.signing") : t("passport.contract.sign")}
-        </button>
-        <span className="muted small-text">{t("passport.contract.demoNote")}</span>
+    <div className="top-gap">
+      {engagement.status === "pending_signature" ? (
+        <p className="muted small-text row" role="status">
+          <HourglassMedium size={16} aria-hidden="true" />
+          {t("passport.contract.preparing")}
+        </p>
+      ) : (
+        <div className="panel-soft" style={{ borderLeft: "3px solid var(--color-highlight)" }}>
+          <p className="row" style={{ fontWeight: 650 }}>
+            <PenNib size={18} aria-hidden="true" />
+            {t("passport.contract.ready")}
+          </p>
+          <dl className="meta top-gap" style={{ margin: 0 }}>
+            <span>
+              <strong>{t("engagement.scope")}:</strong>&nbsp;{engagement.contract_terms.scope}
+            </span>
+            <span>
+              <strong>{t("engagement.start")}:</strong>&nbsp;{date(engagement.start_date)}
+            </span>
+            <span className="num">
+              <strong>{t("engagement.rate")}:</strong>&nbsp;
+              {t("engagement.perDay", { amount: money(engagement.rate, engagement.currency) })}
+            </span>
+            <span>
+              <strong>{t("engagement.mode")}:</strong>&nbsp;{t(`workMode.${engagement.work_mode}`)}
+            </span>
+          </dl>
+          <div className="row wrap top-gap">
+            <button className="small" onClick={() => sign.mutate()} disabled={sign.isPending}>
+              <PenNib size={16} aria-hidden="true" />
+              {sign.isPending ? t("passport.contract.signing") : t("passport.contract.sign")}
+            </button>
+            <span className="muted small-text">{t("passport.contract.demoNote")}</span>
+          </div>
+          <ErrorNote error={sign.error} />
+        </div>
+      )}
+      <div className="top-gap">
+        <DeclineOffer engagement={engagement} />
       </div>
-      <ErrorNote error={sign.error} />
     </div>
   );
 }
@@ -345,6 +429,7 @@ function Engagements({ workerId }: { workerId: string }) {
             </div>
           </div>
           {IN_FLIGHT.includes(e.status) && <ContractToSign engagement={e} />}
+          {e.decline && <DeclineSummary decline={e.decline} />}
           {e.feedback && (
             <div className="feedback panel-soft">
               <ul className="answers">

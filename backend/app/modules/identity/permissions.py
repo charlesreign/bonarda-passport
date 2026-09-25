@@ -26,6 +26,7 @@ class Permission(StrEnum):
     ENGAGEMENT_CREATE = "engagement:create"
     ENGAGEMENT_REACTIVATE = "engagement:reactivate"
     ENGAGEMENT_READ_BILLING = "engagement:read_billing"
+    ENGAGEMENT_DECLINE_OWN = "engagement:decline_own"  # a worker declines their own offer
     FEEDBACK_SUBMIT = "feedback:submit"
     FIRST_SHOT_REVIEW = "first_shot:review"
     ACCESS_GRANT_MANAGE = "access_grant:manage"
@@ -41,7 +42,9 @@ class Permission(StrEnum):
 P = Permission
 ROLE_PERMISSIONS: Mapping[UserRole, frozenset[Permission]] = MappingProxyType(
     {
-        UserRole.WORKER: frozenset({P.WORKER_READ_SELF, P.WORKER_UPDATE_SELF, P.DISPUTE_FILE}),
+        UserRole.WORKER: frozenset(
+            {P.WORKER_READ_SELF, P.WORKER_UPDATE_SELF, P.DISPUTE_FILE, P.ENGAGEMENT_DECLINE_OWN}
+        ),
         UserRole.PM: frozenset(
             {
                 P.WORKER_READ,

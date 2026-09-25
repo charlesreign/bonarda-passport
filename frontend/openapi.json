@@ -146,6 +146,16 @@
         "title": "AvailabilityStatus",
         "type": "string"
       },
+      "CancelCause": {
+        "description": "Why an engagement ended `cancelled` (offer-decline spec \u00a73).",
+        "enum": [
+          "worker_declined",
+          "esign_declined",
+          "worker_account_missing"
+        ],
+        "title": "CancelCause",
+        "type": "string"
+      },
       "Candidate": {
         "properties": {
           "score": {
@@ -457,6 +467,83 @@
           "scope"
         ],
         "title": "ContractTerms",
+        "type": "object"
+      },
+      "DeclineRead": {
+        "properties": {
+          "cause": {
+            "$ref": "#/components/schemas/CancelCause"
+          },
+          "declined_at": {
+            "format": "date-time",
+            "title": "Declined At",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeclineReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "cause",
+          "declined_at",
+          "reason",
+          "note"
+        ],
+        "title": "DeclineRead",
+        "type": "object"
+      },
+      "DeclineReason": {
+        "enum": [
+          "rate",
+          "dates",
+          "scope",
+          "availability",
+          "other"
+        ],
+        "title": "DeclineReason",
+        "type": "string"
+      },
+      "DeclineRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/DeclineReason"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "DeclineRequest",
         "type": "object"
       },
       "DemoAccount": {
@@ -919,6 +1006,16 @@
             "title": "Currency",
             "type": "string"
           },
+          "decline": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeclineRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "end_date": {
             "anyOf": [
               {
@@ -1095,6 +1192,16 @@
           "currency": {
             "title": "Currency",
             "type": "string"
+          },
+          "decline": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeclineRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "end_date": {
             "anyOf": [
@@ -5539,6 +5646,65 @@
         "summary": "Set My Consent",
         "tags": [
           "passport"
+        ]
+      }
+    },
+    "/api/v1/workers/me/engagements/{engagement_id}/decline": {
+      "post": {
+        "description": "The worker declines an offer they have not signed (offer-decline spec \u00a74).",
+        "operationId": "decline_engagement_api_v1_workers_me_engagements__engagement_id__decline_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "engagement_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Engagement Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngagementRead-Output"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Decline Engagement",
+        "tags": [
+          "engagements"
         ]
       }
     },

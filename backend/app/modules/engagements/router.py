@@ -7,16 +7,22 @@ from pydantic import ValidationError
 from app.core.context import Actor
 from app.core.db.session import SessionDep
 from app.core.deps import SettingsDep
-from app.core.errors import BadRequest, Unauthorized
+from app.core.errors import BadRequest, Forbidden, Unauthorized
 from app.core.time import utcnow
 from app.modules.engagements.contracts import ContractService
+from app.modules.engagements.declines import (
+    DeclineService,
+    decline_visible_to,
+    staffed_project_ids,
+)
 from app.modules.engagements.engagements import EngagementService
-from app.modules.engagements.enums import EngagementPath
+from app.modules.engagements.enums import DECLINE_CAUSES, EngagementPath
 from app.modules.engagements.feedback import FeedbackService
 from app.modules.engagements.projects import ProjectService
 from app.modules.engagements.repository import EngagementRepository
 from app.modules.engagements.schemas import (
     CompletionRequest,
+    DeclineRequest,
     EngagementCreate,
     EngagementRead,
     EsignWebhook,
@@ -43,6 +49,7 @@ ProjectManager = Annotated[Actor, Depends(require_permission(Permission.PROJECT_
 EngagementCreator = Annotated[Actor, Depends(require_permission(Permission.ENGAGEMENT_CREATE))]
 Reactivator = Annotated[Actor, Depends(require_permission(Permission.ENGAGEMENT_REACTIVATE))]
 FeedbackReviewer = Annotated[Actor, Depends(require_permission(Permission.FEEDBACK_SUBMIT))]
+WorkerDecliner = Annotated[Actor, Depends(require_permission(Permission.ENGAGEMENT_DECLINE_OWN))]
 
 
 @router.post("/projects", status_code=201)
@@ -87,13 +94,17 @@ async def close_project(
 @router.get("/workers/{worker_id}/engagements")
 async def list_worker_engagements(
     worker_id: UUID,
+    actor: CurrentActor,
     session: SessionDep,
     level: Annotated[Visibility, Depends(require_visibility(Visibility.DETAIL))],
 ) -> list[EngagementRead]:
     repo = EngagementRepository(session)
     engagements = await repo.list_for_worker(worker_id)
-    feedback = await repo.feedback_for([e.id for e in engagements])
-    return [engagement_read(e, feedback.get(e.id)) for e in engagements]
+    staffed = await staffed_project_ids(session, actor)
+    visible = {e.id: decline_visible_to(actor, level, e, staffed) for e in engagements}
+    shown = [e for e in engagements if e.cancel_cause not in DECLINE_CAUSES or visible[e.id]]
+    feedback = await repo.feedback_for([e.id for e in shown])
+    return [engagement_read(e, feedback.get(e.id), show_decline=visible[e.id]) for e in shown]
 
 
 @router.post("/workers/{worker_id}/engagements", status_code=201)
@@ -181,6 +192,17 @@ async def complete_engagement(
 ) -> EngagementRead:
     engagement = await EngagementService(session).complete(actor, engagement_id, body)
     return engagement_read(engagement, None)
+
+
+@router.post("/workers/me/engagements/{engagement_id}/decline")
+async def decline_engagement(
+    engagement_id: UUID, body: DeclineRequest, actor: WorkerDecliner, session: SessionDep
+) -> EngagementRead:
+    """The worker declines an offer they have not signed (offer-decline spec §4)."""
+    if actor.worker_id is None:
+        raise Forbidden("This endpoint is for worker accounts", code="not_a_worker")
+    engagement = await DeclineService(session).decline(actor, actor.worker_id, engagement_id, body)
+    return engagement_read(engagement, None, show_decline=True)
 
 
 @router.post("/engagements/{engagement_id}/feedback", status_code=201)

@@ -115,6 +115,12 @@ class EngagementRepository:
         )
         return list((await self.session.scalars(stmt)).all())
 
+    async def with_decline_note(self, worker_id: UUID) -> list[Engagement]:
+        stmt = select(Engagement).where(
+            Engagement.worker_id == worker_id, Engagement.decline_note.is_not(None)
+        )
+        return list((await self.session.scalars(stmt)).all())
+
     async def feedback_for(self, engagement_ids: Sequence[UUID]) -> dict[UUID, Feedback]:
         if not engagement_ids:
             return {}

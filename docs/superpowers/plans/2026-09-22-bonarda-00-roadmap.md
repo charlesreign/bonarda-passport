@@ -15,6 +15,7 @@ The spec's MVA (§10) is delivered as six sequential plans. Each plan ends with 
 | 4B | `…-04b-projects-and-retention.md` | Closing projects, first-shot transition rules and derived `engaged`, concentration rollups and alerts, governance overview, retention enforcement and anonymization | 4A | Implemented on `feat/governance-4b` (hackathon mode: no plan document, no new tests) |
 | 5 | `…-05-frontend.md` | Vite/React app: generated API client, providers, `/passport`, `/console`, `/ops` bundles, i18n (en/fr), size budgets, Playwright + axe | 1–4 (API contract) | Implemented on `feat/frontend` (hackathon mode: no plan document, no Playwright/axe) |
 | 6 | `…-06-demo-and-operations.md` | Docker Compose with Keycloak + Mailpit, real `AuthlibOidcProvider` verification against Keycloak, seed data, Prometheus metrics and custom counters, Locust profile | 1–5 | Demo pieces on `feat/demo` (Compose with Mailpit and nginx, seed data, dev-only sign endpoint); Keycloak, metrics and Locust not done |
+| — | `2026-09-25-offer-decline.md` | A worker declines an unsigned offer with a reason; PMs mailed; envelope voided; declines recorded, never scored, visible to the worker, People Ops and the offering PMs only | 5 | Implemented on `feat/offer-decline` |
 
 Pre-live gates (spec §10) — SCIM wired to the real IdP, real e-sign/payroll adapters, penetration test, legal sign-offs — are outside these plans.
 
@@ -57,6 +58,11 @@ Each item below must become a named task with a test in the plan listed.
 | any | Nothing stops a JSX string literal from bypassing i18n; add a lint rule (for example `i18next/no-literal-string`) for `src/pages`. |
 | any | `npm run check:api` (regenerate `openapi.json` and the types, then fail on a diff) is not wired into CI yet. |
 | any | Regional concentration counts a worker as "repeat" using their organisation-wide engagement count in the window, not their count in that region. |
+| any | Offer decline: a PM cannot withdraw an offer (`pm_withdrew` cause reserved, not built). |
+| any | Offer decline: no organisation-wide decline rollup on the governance overview. |
+| any | Offer decline: unanswered offers never lapse; an offer-expiry step would need new states and changes FR-4.3 timing. |
+| any | Offer decline: decline notes are cleared on erasure only; add them to the retention cutoff alongside feedback text. |
+| pre-live (real adapters) | The real e-sign adapter must implement `void` idempotently; a signature arriving after a void is audited (`engagement.signed_after_decline`) but not reversed. |
 
 ## Implementation deviations from the spec (recorded as they happen)
 
@@ -108,3 +114,4 @@ Each item below must become a named task with a test in the plan listed.
 | 5 | The API client is `fetch` plus TanStack Query, typed with `openapi-typescript` aliases (`src/api-schema.d.ts`), not a generated client | Types catch contract drift with no runtime code added to the bundles |
 | 5 | Size budgets are gzip totals per lazy page including the shared chunk: `/passport` 150 KB, `/console` (project page) and `/ops` 250 KB each | Measures what a user actually downloads to open the page |
 | 5 | Language falls back from the account locale to a saved choice, then the browser; switching while signed in saves it with `PATCH /me` | The account locale also drives emails (NFR-8.2) |
+| offer-decline | Worker-facing engagement mutation `POST /workers/me/engagements/{id}/decline` and permission `engagement:decline_own`; `engagements` gains `cancel_cause` and decline columns | The parent spec has no worker action on engagements; declining needs one |

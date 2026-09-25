@@ -21,7 +21,14 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 from app.core.db.types import pg_enum
-from app.modules.engagements.enums import EngagementPath, EngagementStatus, ProjectStatus, WorkMode
+from app.modules.engagements.enums import (
+    CancelCause,
+    DeclineReason,
+    EngagementPath,
+    EngagementStatus,
+    ProjectStatus,
+    WorkMode,
+)
 
 
 class Project(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -120,6 +127,11 @@ class Engagement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("user_accounts.id", ondelete="SET NULL")
     )
+    cancel_cause: Mapped[CancelCause | None] = mapped_column(pg_enum(CancelCause))
+    declined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decline_reason: Mapped[DeclineReason | None] = mapped_column(pg_enum(DeclineReason))
+    decline_note: Mapped[str | None] = mapped_column(String(500))
+    void_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
         Index("ix_engagements_worker_start", "worker_id", "start_date"),
@@ -140,6 +152,26 @@ class Engagement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ),
         CheckConstraint("end_date IS NULL OR end_date >= start_date", name="dates_ordered"),
         CheckConstraint("rate > 0", name="rate_positive"),
+        CheckConstraint(
+            "(status = 'cancelled') = (cancel_cause IS NOT NULL)",
+            name="cancel_cause_when_cancelled",
+        ),
+        CheckConstraint(
+            "COALESCE(cancel_cause IN ('worker_declined', 'esign_declined'), false)"
+            " = (declined_at IS NOT NULL)",
+            name="declined_at_when_declined",
+        ),
+        CheckConstraint(
+            "decline_reason IS NULL OR cancel_cause = 'worker_declined'",
+            name="reason_only_for_worker_decline",
+        ),
+        CheckConstraint(
+            "cancel_cause IS DISTINCT FROM 'worker_declined' OR decline_reason IS NOT NULL",
+            name="worker_decline_has_reason",
+        ),
+        CheckConstraint(
+            "decline_note IS NULL OR decline_reason IS NOT NULL", name="note_needs_reason"
+        ),
     )
 
 

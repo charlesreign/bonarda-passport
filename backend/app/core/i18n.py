@@ -55,6 +55,24 @@ MESSAGES: dict[str, dict[str, str]] = {
             "repeat workers, above the {threshold} threshold. Review the governance "
             "dashboard and the first-shot panels."
         ),
+        "offer_declined.subject": "{worker} declined the offer on {project}",
+        "offer_declined.body": (
+            "{worker} declined the engagement offer on {project}.\n\n"
+            "Reason: {reason}\nNote: {note}\n\n"
+            "The contract will not go ahead. You can offer the work to another "
+            "candidate from the project's staffing page."
+        ),
+        "offer_declined.body.esign": (
+            "{worker} declined the contract for {project} at the e-signature provider. "
+            "No reason was given. You can offer the work to another candidate from the "
+            "project's staffing page."
+        ),
+        "offer_declined.no_note": "(none)",
+        "decline_reason.rate": "Rate",
+        "decline_reason.dates": "Dates",
+        "decline_reason.scope": "Scope of work",
+        "decline_reason.availability": "Availability",
+        "decline_reason.other": "Other",
     },
     "fr": {
         "magic_link.subject": "Votre lien de connexion Bonarda",
@@ -108,6 +126,24 @@ MESSAGES: dict[str, dict[str, str]] = {
             "personnes déjà engagées plusieurs fois, au-dessus du seuil de {threshold}. "
             "Consultez le tableau de gouvernance et les panneaux de première chance."
         ),
+        "offer_declined.subject": "{worker} a refusé l'offre pour {project}",
+        "offer_declined.body": (
+            "{worker} a refusé l'offre d'engagement pour {project}.\n\n"
+            "Motif : {reason}\nNote : {note}\n\n"
+            "Le contrat n'ira pas plus loin. Vous pouvez proposer la mission à un autre "
+            "candidat depuis la page de staffing du projet."
+        ),
+        "offer_declined.body.esign": (
+            "{worker} a refusé le contrat pour {project} chez le prestataire de signature "
+            "électronique. Aucun motif n'a été donné. Vous pouvez proposer la mission à un "
+            "autre candidat depuis la page de staffing du projet."
+        ),
+        "offer_declined.no_note": "(aucune)",
+        "decline_reason.rate": "Tarif",
+        "decline_reason.dates": "Dates",
+        "decline_reason.scope": "Périmètre",
+        "decline_reason.availability": "Disponibilité",
+        "decline_reason.other": "Autre",
     },
 }
 DEFAULT_LOCALE = "en"

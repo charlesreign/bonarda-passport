@@ -26,13 +26,22 @@ class EsignAdapter(Protocol):
         engagement_id: a retried handler must not create a second envelope."""
         ...
 
+    async def void(self, envelope_id: str) -> None:
+        """Withdraws a sent envelope so it can no longer be signed. Must be
+        idempotent: voiding an already-voided envelope succeeds."""
+        ...
+
 
 class FakeEsignAdapter:
     """Dev/test stand-in. Records what it would send; never signs by itself."""
 
     def __init__(self) -> None:
         self.sent: dict[UUID, ContractDocument] = {}
+        self.voided: set[str] = set()
 
     async def send_contract(self, document: ContractDocument) -> str:
         self.sent[document.engagement_id] = document
         return f"fake-env-{document.engagement_id}"
+
+    async def void(self, envelope_id: str) -> None:
+        self.voided.add(envelope_id)

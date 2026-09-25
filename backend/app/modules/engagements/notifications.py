@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.i18n import t
 from app.core.mail import Mailer
-from app.modules.engagements.enums import EngagementStatus
+from app.modules.engagements.enums import DECLINE_CAUSES, EngagementStatus
 from app.modules.engagements.repository import EngagementRepository, ProjectRepository
 from app.modules.identity.service import account_contact, active_pm_ids, worker_contact
 from app.modules.passport.service import worker_name
@@ -59,5 +59,39 @@ async def notify_feedback_due(session: AsyncSession, mailer: Mailer, engagement_
             to=contact.email,
             subject=t("feedback_due.subject", contact.locale, worker=name, project=project.name),
             body=t("feedback_due.body", contact.locale, worker=name, project=project.name),
+        )
+    return len(pm_ids)
+
+
+async def notify_offer_declined(session: AsyncSession, mailer: Mailer, engagement_id: UUID) -> int:
+    """To every active PM staffed on the project when the worker declines, in
+    the app or at the e-sign provider. Returns how many PMs were told."""
+    engagement = await EngagementRepository(session).get(engagement_id)
+    if engagement is None or engagement.cancel_cause not in DECLINE_CAUSES:
+        return 0
+    projects = ProjectRepository(session)
+    project = await projects.get(engagement.project_id)
+    if project is None:
+        return 0
+    name = await worker_name(session, engagement.worker_id) or ""
+    pm_ids = await active_pm_ids(session, await projects.active_staff_ids(project.id))
+    for user_id in sorted(pm_ids, key=str):
+        contact = await account_contact(session, user_id)
+        locale = contact.locale
+        if engagement.decline_reason is None:
+            body = t("offer_declined.body.esign", locale, worker=name, project=project.name)
+        else:
+            body = t(
+                "offer_declined.body",
+                locale,
+                worker=name,
+                project=project.name,
+                reason=t(f"decline_reason.{engagement.decline_reason.value}", locale),
+                note=engagement.decline_note or t("offer_declined.no_note", locale),
+            )
+        await mailer.send(
+            to=contact.email,
+            subject=t("offer_declined.subject", locale, worker=name, project=project.name),
+            body=body,
         )
     return len(pm_ids)
