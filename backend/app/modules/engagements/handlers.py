@@ -7,7 +7,11 @@ from app.core.mail import Mailer
 from app.core.outbox.registry import HandlerRegistry
 from app.modules.engagements.contracts import send_contract, sync_worker_status, void_contract
 from app.modules.engagements.feedback import scrub_feedback_text
-from app.modules.engagements.notifications import notify_engagement_confirmed, notify_feedback_due
+from app.modules.engagements.notifications import (
+    notify_engagement_confirmed,
+    notify_feedback_due,
+    notify_offer_declined,
+)
 from app.modules.engagements.payroll import signal_payroll
 from app.modules.engagements.projects import end_staffing_for
 from app.modules.engagements.schemas import (
@@ -17,6 +21,7 @@ from app.modules.engagements.schemas import (
     EngagementCancelled,
     EngagementCompleted,
     EngagementCreated,
+    EngagementDeclined,
     PayrollSignalRequested,
 )
 from app.modules.identity.schemas import AccessRevoked
@@ -62,6 +67,11 @@ def register(
 
     registry.register(EngagementActivated, "engagements.notify_worker", confirm)
     registry.register(EngagementCompleted, "engagements.notify_feedback_due", feedback_due)
+
+    async def offer_declined(session: AsyncSession, payload: dict[str, Any]) -> None:
+        await notify_offer_declined(session, mailer, UUID(payload["aggregate_id"]))
+
+    registry.register(EngagementDeclined, "engagements.notify_offer_declined", offer_declined)
 
     async def scrub_text(session: AsyncSession, payload: dict[str, Any]) -> None:
         await scrub_feedback_text(session, worker_id=UUID(payload["aggregate_id"]))
