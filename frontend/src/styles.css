@@ -422,3 +422,9 @@ label.check input { width: 20px; height: 20px; min-height: 0; accent-color: var(
 .dist-tier_2 { background: var(--tier-2-bg); }
 .dist-tier_1 { background: var(--color-highlight); }
 .dist-unrated { background: var(--color-border-strong); }
+
+/* ---------- Language switch ---------- */
+.lang-switch { display: inline-flex; padding: 2px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.lang { min-height: 36px; min-width: 40px; padding: 0 var(--space-2); background: transparent; color: var(--color-muted-foreground); border-color: transparent; font-size: 0.8rem; }
+.lang:hover:not(:disabled) { background: var(--color-muted); color: var(--color-foreground); border-color: transparent; }
+.lang[aria-pressed="true"] { background: var(--color-accent); color: var(--color-on-accent); }

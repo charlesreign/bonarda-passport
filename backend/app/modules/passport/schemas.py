@@ -113,7 +113,7 @@ class WorkerDetail(_DetailFields):
 class WorkerSelf(_DetailFields):
     view: Literal["self"] = "self"
     email: str
-    locale: str
+    locale: Locale
 
 
 WorkerView = Annotated[WorkerSummary | WorkerDetail | WorkerSelf, Field(discriminator="view")]

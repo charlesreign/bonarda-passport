@@ -6,12 +6,22 @@ import {
   Gavel,
   ListMagnifyingGlass,
   SlidersHorizontal,
+  Trash,
   WarningCircle,
   X,
 } from "@phosphor-icons/react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState, type KeyboardEvent } from "react";
-import { api, type AuditEntry, type Dispute, type Page, type WorkerView } from "../api";
+import { useTranslation } from "react-i18next";
+import {
+  api,
+  type AuditLogPage,
+  type Dispute,
+  type DisputePage,
+  type Overview,
+  type PolicyVersion,
+  type WorkerView,
+} from "../api";
 import { useAuth } from "../auth";
 import {
   Avatar,
@@ -24,10 +34,12 @@ import {
   TierBadge,
   date,
   dateTime,
-  labelFor,
+  percent,
+  tierLabel,
 } from "../ui";
 
 function OverrideForm({ workerId }: { workerId: string }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const reasonId = useId();
   const [tier, setTier] = useState("tier_1");
@@ -43,38 +55,83 @@ function OverrideForm({ workerId }: { workerId: string }) {
   return (
     <div className="inline-form">
       <p className="small-text row wrap">
-        Current tier: {worker.data && <TierBadge tier={worker.data.standing_tier} />}
+        {t("ops.override.current")} {worker.data && <TierBadge tier={worker.data.standing_tier} />}
       </p>
       <div className="form-grid" style={{ margin: 0 }}>
         <label className="field">
-          New tier
+          {t("ops.override.newTier")}
           <select value={tier} onChange={(e) => setTier(e.target.value)}>
-            <option value="unrated">Unrated</option>
-            <option value="tier_1">Tier 1</option>
-            <option value="tier_2">Tier 2</option>
+            {["unrated", "tier_1", "tier_2"].map((value) => (
+              <option key={value} value={value}>
+                {tierLabel(value, true)}
+              </option>
+            ))}
           </select>
         </label>
         <label className="field span-2" htmlFor={reasonId}>
-          Reason <span className="hint">Required, at least 10 characters. Recorded in the audit log.</span>
+          {t("ops.reason")} <span className="hint">{t("ops.override.reasonHint")}</span>
           <input id={reasonId} value={reason} onChange={(e) => setReason(e.target.value)} />
         </label>
       </div>
       <div>
         <button className="small" disabled={reason.trim().length < 10 || save.isPending} onClick={() => save.mutate()}>
-          Override tier
+          {t("ops.override.submit")}
         </button>
       </div>
-      {save.isSuccess && <SuccessNote>Tier updated. The freelancer has been notified.</SuccessNote>}
+      {save.isSuccess && <SuccessNote>{t("ops.override.done")}</SuccessNote>}
       <ErrorNote error={save.error} />
     </div>
   );
 }
 
+/** Erasure (spec §6.3): irreversible, so it asks for a reason and a second click. */
+function EraseForm({ workerId, name }: { workerId: string; name: string }) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const reasonId = useId();
+  const [reason, setReason] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const erase = useMutation({
+    mutationFn: () => api(`/workers/${workerId}/anonymize`, { method: "POST", body: { reason } }),
+    onSuccess: () => {
+      for (const key of [["worker", workerId], ["disputes"]]) void queryClient.invalidateQueries({ queryKey: key });
+    },
+  });
+  if (erase.isSuccess) return <SuccessNote>{t("ops.erase.done")}</SuccessNote>;
+  return (
+    <div className="inline-form" style={{ borderLeft: "3px solid var(--color-destructive)" }}>
+      <p className="small-text">{t("ops.erase.explain", { name })}</p>
+      <label className="field" htmlFor={reasonId}>
+        {t("ops.reason")} <span className="hint">{t("ops.erase.reasonHint")}</span>
+        <input id={reasonId} value={reason} onChange={(e) => setReason(e.target.value)} />
+      </label>
+      <div className="row wrap">
+        {confirming ? (
+          <>
+            <button className="danger small" onClick={() => erase.mutate()} disabled={erase.isPending}>
+              {t("ops.erase.confirm")}
+            </button>
+            <button className="secondary small" onClick={() => setConfirming(false)}>
+              {t("common.cancel")}
+            </button>
+          </>
+        ) : (
+          <button className="danger small" disabled={reason.trim().length < 10} onClick={() => setConfirming(true)}>
+            {t("ops.erase.submit")}
+          </button>
+        )}
+      </div>
+      <ErrorNote error={erase.error} />
+    </div>
+  );
+}
+
 function DisputeCard({ dispute }: { dispute: Dispute }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const notesId = useId();
   const [notes, setNotes] = useState("");
-  const [override, setOverride] = useState(false);
+  const [panel, setPanel] = useState<"override" | "erase" | null>(null);
   const worker = useQuery({
     queryKey: ["worker", dispute.worker_id],
     queryFn: () => api<WorkerView>(`/workers/${dispute.worker_id}`),
@@ -86,7 +143,8 @@ function DisputeCard({ dispute }: { dispute: Dispute }) {
   });
   const overdue = new Date(dispute.due_at) < new Date();
   const name = worker.data?.full_name ?? "…";
-  const target = labelFor(dispute.target_type.replace("_", "-")).toLowerCase();
+  const target = t(`targets.${dispute.target_type}`);
+  const toggle = (which: "override" | "erase") => setPanel((current) => (current === which ? null : which));
   return (
     <article className="list-item">
       <div className="row between wrap">
@@ -94,15 +152,13 @@ function DisputeCard({ dispute }: { dispute: Dispute }) {
           <Avatar name={name} />
           <div>
             <strong>{name}</strong>
-            <p className="muted small-text">
-              Disputes a {target} · filed {date(dispute.created_at)}
-            </p>
+            <p className="muted small-text">{t("ops.disputes.about", { target, date: date(dispute.created_at) })}</p>
           </div>
         </div>
         {dispute.status === "open" ? (
           <span className={overdue ? "pill pill-bad" : "pill pill-warn"}>
             <ClockCountdown size={14} aria-hidden="true" />
-            {overdue ? "Overdue since" : "Due"} {date(dispute.due_at)}
+            {overdue ? t("ops.disputes.overdueSince", { date: date(dispute.due_at) }) : t("ops.disputes.due", { date: date(dispute.due_at) })}
           </span>
         ) : (
           <Status value={dispute.resolution ?? dispute.status} />
@@ -112,20 +168,19 @@ function DisputeCard({ dispute }: { dispute: Dispute }) {
       {dispute.status === "open" ? (
         <div className="stack" style={{ gap: 12 }}>
           <label className="field" htmlFor={notesId}>
-            Resolution notes
-            <span className="hint">Sent to the freelancer. At least 10 characters.</span>
+            {t("ops.disputes.notes")}
+            <span className="hint">{t("ops.disputes.notesHint")}</span>
             <textarea id={notesId} rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </label>
           {dispute.target_type !== "standing_change" && (
             <p className="muted small-text">
-              Upholding stops this {target === "engagement" ? "engagement's feedback" : "feedback"} counting toward
-              their standing and recalculates it.
+              {dispute.target_type === "engagement" ? t("ops.disputes.upholdEngagement") : t("ops.disputes.upholdFeedback")}
             </p>
           )}
           <div className="row wrap">
             <button className="small" disabled={notes.trim().length < 10 || resolve.isPending} onClick={() => resolve.mutate("upheld")}>
               <Check size={16} aria-hidden="true" />
-              Uphold
+              {t("ops.disputes.uphold")}
             </button>
             <button
               className="secondary small"
@@ -133,20 +188,25 @@ function DisputeCard({ dispute }: { dispute: Dispute }) {
               onClick={() => resolve.mutate("rejected")}
             >
               <X size={16} aria-hidden="true" />
-              Reject
+              {t("ops.disputes.reject")}
             </button>
-            <button className="ghost small" aria-expanded={override} onClick={() => setOverride((v) => !v)}>
+            <button className="ghost small" aria-expanded={panel === "override"} onClick={() => toggle("override")}>
               <SlidersHorizontal size={16} aria-hidden="true" />
-              Override standing
+              {t("ops.override.open")}
+            </button>
+            <button className="ghost small" aria-expanded={panel === "erase"} onClick={() => toggle("erase")}>
+              <Trash size={16} aria-hidden="true" />
+              {t("ops.erase.open")}
             </button>
           </div>
-          {override && <OverrideForm workerId={dispute.worker_id} />}
+          {panel === "override" && <OverrideForm workerId={dispute.worker_id} />}
+          {panel === "erase" && <EraseForm workerId={dispute.worker_id} name={name} />}
           <ErrorNote error={resolve.error} />
         </div>
       ) : (
         dispute.resolution_notes && (
           <p className="small-text">
-            <strong>Notes:</strong> {dispute.resolution_notes}
+            <strong>{t("ops.disputes.notesLabel")}</strong> {dispute.resolution_notes}
           </p>
         )
       )}
@@ -155,41 +215,43 @@ function DisputeCard({ dispute }: { dispute: Dispute }) {
 }
 
 function Disputes() {
+  const { t } = useTranslation();
   const [status, setStatus] = useState("open");
   const { data, error, isLoading } = useQuery({
     queryKey: ["disputes", status],
-    queryFn: () => api<Page<Dispute>>(`/disputes?status=${status}&limit=50`),
+    queryFn: () => api<DisputePage>(`/disputes?status=${status}&limit=50`),
   });
   return (
     <Card
-      title="Disputes"
+      title={t("ops.tabs.disputes")}
       icon={<Gavel size={20} aria-hidden="true" />}
-      subtitle="Oldest due first. Each dispute is answered within 30 days."
+      subtitle={t("ops.disputes.lead")}
       actions={
         <label className="field">
-          <span className="sr-only">Show</span>
+          <span className="sr-only">{t("ops.disputes.show")}</span>
           <select value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="open">Open</option>
-            <option value="resolved">Resolved</option>
+            <option value="open">{t("status.open")}</option>
+            <option value="resolved">{t("status.resolved")}</option>
           </select>
         </label>
       }
     >
       {isLoading && <Loading />}
       <ErrorNote error={error} />
-      {data?.items.length === 0 && <Empty icon={<Gavel size={36} aria-hidden="true" />}>Nothing here.</Empty>}
+      {data?.items.length === 0 && <Empty icon={<Gavel size={36} aria-hidden="true" />}>{t("ops.disputes.none")}</Empty>}
       {data?.items.map((d) => <DisputeCard key={d.id} dispute={d} />)}
     </Card>
   );
 }
 
 function AuditLog() {
+  const { t } = useTranslation();
   const [action, setAction] = useState("");
   const query = useInfiniteQuery({
     queryKey: ["audit", action],
     initialPageParam: "",
     queryFn: ({ pageParam }) =>
-      api<Page<AuditEntry>>(
+      api<AuditLogPage>(
         `/governance/audit-log?limit=25${action ? `&action=${encodeURIComponent(action)}` : ""}${
           pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ""
         }`,
@@ -199,16 +261,16 @@ function AuditLog() {
   const rows = query.data?.pages.flatMap((p) => p.items) ?? [];
   return (
     <Card
-      title="Audit log"
+      title={t("ops.tabs.audit")}
       icon={<ListMagnifyingGlass size={20} aria-hidden="true" />}
-      subtitle="Every change, who made it and why, newest first."
+      subtitle={t("ops.audit.lead")}
       actions={
         <div className="search-field">
           <ListMagnifyingGlass size={18} aria-hidden="true" />
           <input
             type="search"
-            aria-label="Filter by action"
-            placeholder="e.g. dispute.resolved"
+            aria-label={t("ops.audit.filter")}
+            placeholder={t("ops.audit.placeholder")}
             value={action}
             onChange={(e) => setAction(e.target.value.trim())}
           />
@@ -222,11 +284,11 @@ function AuditLog() {
           <table className="table audit">
             <thead>
               <tr>
-                <th scope="col">When</th>
-                <th scope="col">Action</th>
-                <th scope="col">By</th>
-                <th scope="col">Target</th>
-                <th scope="col">Change</th>
+                <th scope="col">{t("ops.audit.when")}</th>
+                <th scope="col">{t("ops.audit.action")}</th>
+                <th scope="col">{t("ops.audit.by")}</th>
+                <th scope="col">{t("ops.audit.target")}</th>
+                <th scope="col">{t("ops.audit.change")}</th>
               </tr>
             </thead>
             <tbody>
@@ -238,7 +300,7 @@ function AuditLog() {
                   <td>
                     <code>{r.action}</code>
                   </td>
-                  <td className="small-text">{(r.actor_role ?? "system").replace("_", " ")}</td>
+                  <td className="small-text">{r.actor_role ? t(`roles.${r.actor_role}`, { defaultValue: r.actor_role }) : t("ops.audit.system")}</td>
                   <td className="small-text">
                     {r.target_type} <code>{r.target_id.slice(0, 8)}</code>
                   </td>
@@ -246,7 +308,11 @@ function AuditLog() {
                     {r.before && <code>{JSON.stringify(r.before)}</code>}
                     {r.before && r.after && " → "}
                     {r.after && <code>{JSON.stringify(r.after)}</code>}
-                    {r.reason && <div className="muted">Reason: {r.reason}</div>}
+                    {r.reason && (
+                      <div className="muted">
+                        {t("ops.reason")}: {r.reason}
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -256,39 +322,17 @@ function AuditLog() {
       )}
       {query.hasNextPage && (
         <button className="secondary top-gap" onClick={() => void query.fetchNextPage()} disabled={query.isFetchingNextPage}>
-          {query.isFetchingNextPage ? "Loading…" : "Load more"}
+          {query.isFetchingNextPage ? t("common.loading") : t("ops.audit.more")}
         </button>
       )}
     </Card>
   );
 }
 
-interface Rollup {
-  period_start: string;
-  period_end: string;
-  scope: string;
-  engagements_total: number;
-  engagements_repeat: number;
-  share: number;
-  first_shot_shown: number;
-  first_shot_engaged: number;
-  tier_counts: Record<string, number>;
-  alerted: boolean;
-}
-
-interface Overview {
-  alert_share: number;
-  repeat_min_engagements: number;
-  window_days: number;
-  policy_version: number;
-  concentration: Rollup[];
-  disputes: { open: number; overdue: number; resolved_30d: number; upheld_30d: number };
-}
-
-const pct = (n: number) => `${Math.round(n * 100)}%`;
 const TIER_ORDER = ["tier_2", "tier_1", "unrated"];
 
 function OverviewTab() {
+  const { t } = useTranslation();
   const { data, error, isLoading } = useQuery({
     queryKey: ["governance-overview"],
     queryFn: () => api<Overview>("/governance/overview"),
@@ -303,65 +347,67 @@ function OverviewTab() {
     <div className="stack">
       <dl className="stats overview-stats">
         <div className="stat">
-          <dt>Repeat share (org)</dt>
-          <dd className={org && org.share > data.alert_share ? "text-bad" : undefined}>
-            {org ? pct(org.share) : "—"}
-          </dd>
+          <dt>{t("ops.overview.repeatShare")}</dt>
+          <dd className={org && org.share > data.alert_share ? "text-bad" : undefined}>{org ? percent(org.share) : "—"}</dd>
         </div>
         <div className="stat">
-          <dt>Alert threshold</dt>
-          <dd>{pct(data.alert_share)}</dd>
+          <dt>{t("ops.overview.threshold")}</dt>
+          <dd>{percent(data.alert_share)}</dd>
         </div>
         <div className="stat">
-          <dt>Open disputes</dt>
+          <dt>{t("ops.overview.openDisputes")}</dt>
           <dd>{data.disputes.open}</dd>
         </div>
         <div className="stat">
-          <dt>Overdue</dt>
+          <dt>{t("ops.overview.overdue")}</dt>
           <dd className={data.disputes.overdue > 0 ? "text-bad" : undefined}>{data.disputes.overdue}</dd>
         </div>
       </dl>
       <Card
-        title="Work concentration"
+        title={t("ops.overview.concentration")}
         icon={<ChartBar size={20} aria-hidden="true" />}
-        subtitle={`Share of engagements in the last ${data.window_days} days that went to people with ${data.repeat_min_engagements} or more. Concentration policy v${data.policy_version}; refreshed nightly${org ? `, last ${date(org.period_end)}` : ""}.`}
+        subtitle={t("ops.overview.concentrationLead", {
+          days: data.window_days,
+          min: data.repeat_min_engagements,
+          version: data.policy_version,
+        }) + (org ? ` ${t("ops.overview.lastRun", { date: date(org.period_end) })}` : "")}
       >
         {data.concentration.length === 0 ? (
-          <Empty icon={<ChartBar size={36} aria-hidden="true" />}>No rollup yet. It runs nightly at 02:10 UTC.</Empty>
+          <Empty icon={<ChartBar size={36} aria-hidden="true" />}>{t("ops.overview.noRollup")}</Empty>
         ) : (
           <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>
-                  <th scope="col">Scope</th>
-                  <th scope="col">Engagements</th>
-                  <th scope="col">Repeat share</th>
-                  <th scope="col">First shot shown</th>
-                  <th scope="col">First shot engaged</th>
+                  <th scope="col">{t("ops.overview.scope")}</th>
+                  <th scope="col">{t("ops.overview.engagements")}</th>
+                  <th scope="col">{t("ops.overview.repeat")}</th>
+                  <th scope="col">{t("ops.overview.shown")}</th>
+                  <th scope="col">{t("ops.overview.engaged")}</th>
                 </tr>
               </thead>
               <tbody>
                 {data.concentration.map((r) => (
                   <tr key={r.scope}>
                     <td>
-                      <strong>{r.scope === "ORG" ? "Whole organisation" : r.scope}</strong>
+                      <strong>{r.scope === "ORG" ? t("ops.overview.org") : r.scope}</strong>
                     </td>
                     <td className="num">{r.engagements_total}</td>
                     <td>
                       <div className="share">
-                        <span className="num">{pct(r.share)}</span>
+                        <span className="num">{percent(r.share)}</span>
                         <div
                           className="sharebar"
                           role="img"
-                          aria-label={`${pct(r.share)} against a ${pct(data.alert_share)} threshold`}
+                          aria-label={t("ops.overview.shareAria", { share: percent(r.share), threshold: percent(data.alert_share) })}
                         >
-                          <span className={r.share > data.alert_share ? "over" : ""} style={{ width: pct(r.share) }} />
-                          <i style={{ left: pct(data.alert_share) }} />
+                          <span className={r.share > data.alert_share ? "over" : ""} style={{ width: `${r.share * 100}%` }} />
+                          <i style={{ left: `${data.alert_share * 100}%` }} />
                         </div>
                         {r.share > data.alert_share && (
                           <span className="pill pill-bad">
                             <WarningCircle size={14} aria-hidden="true" />
-                            Above threshold
+                            {t("ops.overview.above")}
                           </span>
                         )}
                       </div>
@@ -370,7 +416,7 @@ function OverviewTab() {
                     <td className="num">
                       {r.first_shot_engaged}
                       {r.first_shot_shown > 0 && (
-                        <span className="muted small-text"> ({pct(r.first_shot_engaged / r.first_shot_shown)})</span>
+                        <span className="muted small-text"> ({percent(r.first_shot_engaged / r.first_shot_shown)})</span>
                       )}
                     </td>
                   </tr>
@@ -381,7 +427,7 @@ function OverviewTab() {
         )}
       </Card>
       <div className="grid-2">
-        <Card title="Tier distribution" subtitle={`${pool} people in the talent pool`}>
+        <Card title={t("ops.overview.tiers")} subtitle={t("ops.overview.pool", { count: pool })}>
           {TIER_ORDER.map((tier) => {
             const n = tiers[tier] ?? 0;
             return (
@@ -391,24 +437,24 @@ function OverviewTab() {
                   <span className={`dist-${tier}`} style={{ width: pool ? `${(n / pool) * 100}%` : 0 }} />
                 </div>
                 <span className="num">
-                  {n} <span className="muted small-text">({pool ? pct(n / pool) : "0%"})</span>
+                  {n} <span className="muted small-text">({percent(pool ? n / pool : 0)})</span>
                 </span>
               </div>
             );
           })}
         </Card>
-        <Card title="Disputes, last 30 days">
+        <Card title={t("ops.overview.disputes30")}>
           <dl className="stats">
             <div className="stat">
-              <dt>Resolved</dt>
+              <dt>{t("status.resolved")}</dt>
               <dd>{data.disputes.resolved_30d}</dd>
             </div>
             <div className="stat">
-              <dt>Upheld</dt>
+              <dt>{t("status.upheld")}</dt>
               <dd>{data.disputes.upheld_30d}</dd>
             </div>
             <div className="stat">
-              <dt>Open now</dt>
+              <dt>{t("ops.overview.openNow")}</dt>
               <dd>{data.disputes.open}</dd>
             </div>
           </dl>
@@ -418,23 +464,23 @@ function OverviewTab() {
   );
 }
 
-type PolicyVersion = { version: number; status: string; rules: unknown; notes: string | null };
-
 function Policies() {
-  const kinds = ["tiering", "matching"] as const;
+  const { t } = useTranslation();
+  const kinds = ["tiering", "matching", "concentration", "retention"] as const;
   const results = {
     tiering: useQuery({ queryKey: ["policies", "tiering"], queryFn: () => api<PolicyVersion[]>("/policies/tiering/versions") }),
     matching: useQuery({ queryKey: ["policies", "matching"], queryFn: () => api<PolicyVersion[]>("/policies/matching/versions") }),
+    concentration: useQuery({
+      queryKey: ["policies", "concentration"],
+      queryFn: () => api<PolicyVersion[]>("/policies/concentration/versions"),
+    }),
+    retention: useQuery({ queryKey: ["policies", "retention"], queryFn: () => api<PolicyVersion[]>("/policies/retention/versions") }),
   };
   return (
-    <Card
-      title="Policies"
-      icon={<FileText size={20} aria-hidden="true" />}
-      subtitle="Versioned rules. A new version needs a second People Ops member to activate it."
-    >
+    <Card title={t("ops.tabs.policies")} icon={<FileText size={20} aria-hidden="true" />} subtitle={t("ops.policies.lead")}>
       {kinds.map((kind) => (
         <section key={kind} className="list-item">
-          <h3 style={{ marginTop: 0 }}>{kind}</h3>
+          <h3 style={{ marginTop: 0 }}>{t(`ops.policies.kinds.${kind}`)}</h3>
           <ErrorNote error={results[kind].error} />
           {results[kind].data?.map((v) => (
             <details key={v.version} open={v.status === "active"}>
@@ -451,14 +497,8 @@ function Policies() {
   );
 }
 
-const TAB_LABEL: Record<string, string> = {
-  overview: "Overview",
-  disputes: "Disputes",
-  audit: "Audit log",
-  policies: "Policies",
-};
-
 export default function Ops() {
+  const { t } = useTranslation();
   const { me } = useAuth();
   const tabs = me?.role === "admin" ? ["overview", "audit"] : ["overview", "disputes", "audit", "policies"];
   const [tab, setTab] = useState(tabs[0]);
@@ -473,23 +513,23 @@ export default function Ops() {
     <>
       <div className="page-head">
         <div>
-          <p className="eyebrow">Governance</p>
-          <h1>People Ops</h1>
-          <p>Disputes, standing overrides, the audit trail and the rules behind tiers and matching.</p>
+          <p className="eyebrow">{t("nav.governance")}</p>
+          <h1>{t("roles.people_ops")}</h1>
+          <p>{t("ops.lead")}</p>
         </div>
-        <div className="tabs" role="tablist" aria-label="Governance sections" onKeyDown={onTabKey}>
-          {tabs.map((t) => (
+        <div className="tabs" role="tablist" aria-label={t("ops.sections")} onKeyDown={onTabKey}>
+          {tabs.map((name) => (
             <button
-              key={t}
+              key={name}
               role="tab"
-              id={`tab-${t}`}
-              aria-selected={t === tab}
-              aria-controls={`panel-${t}`}
-              tabIndex={t === tab ? 0 : -1}
+              id={`tab-${name}`}
+              aria-selected={name === tab}
+              aria-controls={`panel-${name}`}
+              tabIndex={name === tab ? 0 : -1}
               className="tab"
-              onClick={() => setTab(t)}
+              onClick={() => setTab(name)}
             >
-              {TAB_LABEL[t]}
+              {t(`ops.tabs.${name}`)}
             </button>
           ))}
         </div>

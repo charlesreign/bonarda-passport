@@ -97,20 +97,6 @@ class DemoWorker:
 
 WORKERS = [
     DemoWorker(
-        "Charlie",
-        "Charles Gold",
-        "GH",
-        "Accra",
-        ["en", "tw"],
-        {"software-engineering": True, "devsecops": True, "python": True},
-        history=[
-            Past(2, "efua", skills=["software-engineering", "python"]),
-            Past(5, "luc", skills=["software-engineering", "devsecops"]),
-            Past(8, "efua"),
-            Past(11, "luc"),
-        ],
-    ),
-    DemoWorker(
         "kofi",
         "Kofi Mensah",
         "GH",

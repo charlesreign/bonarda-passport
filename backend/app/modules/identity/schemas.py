@@ -21,7 +21,7 @@ class MeResponse(BaseModel):
     role: UserRole
     worker_id: UUID | None
     can_view_governance: bool
-    locale: str
+    locale: Locale
 
 
 class MeUpdate(BaseModel):
@@ -30,7 +30,7 @@ class MeUpdate(BaseModel):
 
 class AccountContact(BaseModel):
     email: str
-    locale: str
+    locale: Locale
 
 
 class MagicLinkRequest(BaseModel):
