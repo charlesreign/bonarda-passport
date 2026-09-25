@@ -345,46 +345,50 @@ function ContractToSign({ engagement }: { engagement: Engagement }) {
         void queryClient.invalidateQueries({ queryKey: key });
     },
   });
-  if (engagement.status === "pending_signature")
-    return (
-      <div className="top-gap">
+  // One tree for both statuses, with DeclineOffer always in the same place:
+  // the list polls while the contract is sent, and a status change must not
+  // unmount a half-filled decline form.
+  return (
+    <div className="top-gap">
+      {engagement.status === "pending_signature" ? (
         <p className="muted small-text row" role="status">
           <HourglassMedium size={16} aria-hidden="true" />
           {t("passport.contract.preparing")}
         </p>
+      ) : (
+        <div className="panel-soft" style={{ borderLeft: "3px solid var(--color-highlight)" }}>
+          <p className="row" style={{ fontWeight: 650 }}>
+            <PenNib size={18} aria-hidden="true" />
+            {t("passport.contract.ready")}
+          </p>
+          <dl className="meta top-gap" style={{ margin: 0 }}>
+            <span>
+              <strong>{t("engagement.scope")}:</strong>&nbsp;{engagement.contract_terms.scope}
+            </span>
+            <span>
+              <strong>{t("engagement.start")}:</strong>&nbsp;{date(engagement.start_date)}
+            </span>
+            <span className="num">
+              <strong>{t("engagement.rate")}:</strong>&nbsp;
+              {t("engagement.perDay", { amount: money(engagement.rate, engagement.currency) })}
+            </span>
+            <span>
+              <strong>{t("engagement.mode")}:</strong>&nbsp;{t(`workMode.${engagement.work_mode}`)}
+            </span>
+          </dl>
+          <div className="row wrap top-gap">
+            <button className="small" onClick={() => sign.mutate()} disabled={sign.isPending}>
+              <PenNib size={16} aria-hidden="true" />
+              {sign.isPending ? t("passport.contract.signing") : t("passport.contract.sign")}
+            </button>
+            <span className="muted small-text">{t("passport.contract.demoNote")}</span>
+          </div>
+          <ErrorNote error={sign.error} />
+        </div>
+      )}
+      <div className="top-gap">
         <DeclineOffer engagement={engagement} />
       </div>
-    );
-  return (
-    <div className="panel-soft top-gap" style={{ borderLeft: "3px solid var(--color-highlight)" }}>
-      <p className="row" style={{ fontWeight: 650 }}>
-        <PenNib size={18} aria-hidden="true" />
-        {t("passport.contract.ready")}
-      </p>
-      <dl className="meta top-gap" style={{ margin: 0 }}>
-        <span>
-          <strong>{t("engagement.scope")}:</strong>&nbsp;{engagement.contract_terms.scope}
-        </span>
-        <span>
-          <strong>{t("engagement.start")}:</strong>&nbsp;{date(engagement.start_date)}
-        </span>
-        <span className="num">
-          <strong>{t("engagement.rate")}:</strong>&nbsp;
-          {t("engagement.perDay", { amount: money(engagement.rate, engagement.currency) })}
-        </span>
-        <span>
-          <strong>{t("engagement.mode")}:</strong>&nbsp;{t(`workMode.${engagement.work_mode}`)}
-        </span>
-      </dl>
-      <div className="row wrap top-gap">
-        <button className="small" onClick={() => sign.mutate()} disabled={sign.isPending}>
-          <PenNib size={16} aria-hidden="true" />
-          {sign.isPending ? t("passport.contract.signing") : t("passport.contract.sign")}
-        </button>
-        <DeclineOffer engagement={engagement} />
-        <span className="muted small-text">{t("passport.contract.demoNote")}</span>
-      </div>
-      <ErrorNote error={sign.error} />
     </div>
   );
 }
