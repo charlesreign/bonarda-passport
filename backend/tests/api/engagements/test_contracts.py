@@ -11,7 +11,7 @@ from app.core.config import Settings
 from app.core.enums import UserRole
 from app.core.time import utcnow
 from app.modules.engagements.contracts import activate_due
-from app.modules.engagements.enums import EngagementStatus
+from app.modules.engagements.enums import CancelCause, DeclineReason, EngagementStatus
 from app.modules.engagements.models import Engagement
 from app.modules.engagements.payroll import signal_payroll
 from app.modules.engagements.stuck import flag_stuck
@@ -214,7 +214,12 @@ async def test_cancelled_before_dispatch_is_never_sent(
     await session.execute(
         update(Engagement)
         .where(Engagement.id == created["id"])
-        .values(status=EngagementStatus.CANCELLED)
+        .values(
+            status=EngagementStatus.CANCELLED,
+            cancel_cause=CancelCause.WORKER_DECLINED,
+            declined_at=utcnow(),
+            decline_reason=DeclineReason.OTHER,
+        )
     )
     await session.commit()
 

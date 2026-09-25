@@ -42,3 +42,28 @@ HISTORY_STATUSES = (
     EngagementStatus.ACTIVE,
     EngagementStatus.COMPLETED,
 )
+
+
+class CancelCause(enum.StrEnum):
+    """Why an engagement ended `cancelled` (offer-decline spec §3)."""
+
+    WORKER_DECLINED = "worker_declined"  # in the app
+    ESIGN_DECLINED = "esign_declined"  # at the e-sign provider
+    WORKER_ACCOUNT_MISSING = "worker_account_missing"  # erased before the contract went out
+
+
+class DeclineReason(enum.StrEnum):
+    RATE = "rate"
+    DATES = "dates"
+    SCOPE = "scope"
+    AVAILABILITY = "availability"
+    OTHER = "other"
+
+
+# Declines are recorded, never scored: no standing or roster query reads these.
+DECLINE_CAUSES = frozenset({CancelCause.WORKER_DECLINED, CancelCause.ESIGN_DECLINED})
+
+# An offer can be declined until its contract is signed.
+DECLINABLE_STATUSES = frozenset(
+    {EngagementStatus.PENDING_SIGNATURE, EngagementStatus.AWAITING_SIGNATURE}
+)

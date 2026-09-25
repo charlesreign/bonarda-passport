@@ -10,7 +10,7 @@ from app.core.errors import Conflict, NotFound
 from app.core.outbox.writer import emit_event
 from app.core.time import utcnow
 from app.modules.engagements.engagements import EngagementService
-from app.modules.engagements.enums import EngagementStatus
+from app.modules.engagements.enums import CancelCause, EngagementStatus
 from app.modules.engagements.models import Engagement
 from app.modules.engagements.repository import EngagementRepository, ProjectRepository
 from app.modules.engagements.schemas import (
@@ -42,6 +42,7 @@ async def send_contract(session: AsyncSession, esign: EsignAdapter, engagement_i
         # The worker's account is gone (erased or anonymized): nobody can sign,
         # so cancel rather than retry into the dead-letter list.
         engagement.status = EngagementStatus.CANCELLED
+        engagement.cancel_cause = CancelCause.WORKER_ACCOUNT_MISSING
         engagement.stuck_flagged_at = None
         await write_audit(
             session,
@@ -167,6 +168,8 @@ class ContractService:
         if engagement.status not in _SENDABLE:
             return
         engagement.status = EngagementStatus.CANCELLED
+        engagement.cancel_cause = CancelCause.ESIGN_DECLINED
+        engagement.declined_at = utcnow()
         engagement.stuck_flagged_at = None
         await write_audit(
             self.session,
