@@ -628,6 +628,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workers/me/engagements/{engagement_id}/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decline Engagement
+         * @description The worker declines an offer they have not signed (offer-decline spec §4).
+         */
+        post: operations["decline_engagement_api_v1_workers_me_engagements__engagement_id__decline_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workers/me/onboarding/complete": {
         parameters: {
             query?: never;
@@ -900,6 +920,12 @@ export interface components {
          * @enum {string}
          */
         AvailabilityStatus: "available" | "available_from" | "unavailable";
+        /**
+         * CancelCause
+         * @description Why an engagement ended `cancelled` (offer-decline spec §3).
+         * @enum {string}
+         */
+        CancelCause: "worker_declined" | "esign_declined" | "worker_account_missing";
         /** Candidate */
         Candidate: {
             /** Score */
@@ -1005,6 +1031,29 @@ export interface components {
             access_notes?: string | null;
             /** Scope */
             scope: string;
+        };
+        /** DeclineRead */
+        DeclineRead: {
+            cause: components["schemas"]["CancelCause"];
+            /**
+             * Declined At
+             * Format: date-time
+             */
+            declined_at: string;
+            /** Note */
+            note: string | null;
+            reason: components["schemas"]["DeclineReason"] | null;
+        };
+        /**
+         * DeclineReason
+         * @enum {string}
+         */
+        DeclineReason: "rate" | "dates" | "scope" | "availability" | "other";
+        /** DeclineRequest */
+        DeclineRequest: {
+            /** Note */
+            note?: string | null;
+            reason: components["schemas"]["DeclineReason"];
         };
         /** DemoAccount */
         DemoAccount: {
@@ -1193,6 +1242,7 @@ export interface components {
             contract_terms: components["schemas"]["ContractTerms"];
             /** Currency */
             currency: string;
+            decline?: components["schemas"]["DeclineRead"] | null;
             /** End Date */
             end_date: string | null;
             feedback: components["schemas"]["FeedbackRead"] | null;
@@ -1246,6 +1296,7 @@ export interface components {
             contract_terms: components["schemas"]["ContractTerms"];
             /** Currency */
             currency: string;
+            decline?: components["schemas"]["DeclineRead"] | null;
             /** End Date */
             end_date: string | null;
             feedback: components["schemas"]["FeedbackRead"] | null;
@@ -3394,6 +3445,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConsentRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decline_engagement_api_v1_workers_me_engagements__engagement_id__decline_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                engagement_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeclineRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EngagementRead-Output"];
                 };
             };
             /** @description Validation Error */

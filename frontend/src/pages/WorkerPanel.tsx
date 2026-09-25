@@ -12,6 +12,7 @@ import {
   type Standing,
   type WorkerView,
 } from "../api";
+import { useAuth } from "../auth";
 import { currentLanguage } from "../i18n";
 import {
   Avatar,
@@ -24,6 +25,7 @@ import {
   TierBadge,
   answerLabel,
   availabilityText,
+  DeclineSummary,
   date,
   money,
   percent,
@@ -255,6 +257,7 @@ function EngagementRow({ engagement, project }: { engagement: Engagement; projec
           {engagement.feedback.free_text ? ` · “${engagement.feedback.free_text}”` : ""}
         </p>
       )}
+      {engagement.decline && <DeclineSummary decline={engagement.decline} />}
       <ErrorNote error={complete.error} />
     </article>
   );
@@ -320,6 +323,9 @@ export default function WorkerPanel({
     enabled: detail,
   });
   const w = worker.data;
+  const { me } = useAuth();
+  const declines = engagements.data?.filter((e) => e.decline) ?? [];
+  const seesDeclineCount = me?.role === "people_ops" || me?.role === "admin";
   const openEngagement = engagements.data?.some(
     (e) => e.project_id === project.id && !["completed", "cancelled"].includes(e.status),
   );
@@ -403,6 +409,9 @@ export default function WorkerPanel({
             {detail && (
               <section className="drawer-section" aria-labelledby="eng-heading">
                 <h2 id="eng-heading">{t("passport.engagements.title")}</h2>
+                {seesDeclineCount && declines.length > 0 && (
+                  <p className="muted small-text">{t("engagement.declinedOffers", { count: declines.length })}</p>
+                )}
                 {engagements.data?.length === 0 && <p className="muted top-gap">{t("drawer.noEngagements")}</p>}
                 <div className="top-gap">
                   {engagements.data?.map((e) => (

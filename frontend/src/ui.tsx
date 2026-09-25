@@ -1,7 +1,7 @@
 import { CheckCircle, Info, SealCheck, ShieldStar, WarningCircle } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { ApiError, api, errorText, type Skill } from "./api";
+import { ApiError, api, errorText, type Decline, type Skill } from "./api";
 import i18n, { currentLanguage } from "./i18n";
 
 const t = (key: string, options?: Record<string, unknown>) => i18n.t(key, options);
@@ -207,4 +207,21 @@ export function availabilityText(status: string, from: string | null): string {
 
 export function labelFor(slug: string): string {
   return slug.replaceAll("-", " ").replace(/^\w/, (c) => c.toUpperCase());
+}
+
+/** One line saying an offer was declined; the note only where the viewer may
+ * read it in full (the worker, People Ops, the offering PM). */
+export function DeclineSummary({ decline, showNote = true }: { decline: Decline; showNote?: boolean }) {
+  const when = date(decline.declined_at);
+  const line =
+    decline.cause === "esign_declined"
+      ? t("engagement.declinedAtProvider", { date: when })
+      : t("engagement.declined", { date: when });
+  return (
+    <p className="muted small-text top-gap">
+      {line}
+      {decline.reason ? ` · ${t(`declineReason.${decline.reason}`)}` : ""}
+      {showNote && decline.note ? ` · “${decline.note}”` : ""}
+    </p>
+  );
 }
