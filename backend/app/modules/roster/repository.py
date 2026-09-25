@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -95,6 +96,14 @@ class FirstShotRepository:
             )
             .on_conflict_do_nothing(constraint="uq_first_shot_reviews_project_worker")
         )
+
+    async def outcomes_since(self, since: datetime) -> list[tuple[UUID, str]]:
+        rows = await self.session.execute(
+            select(FirstShotReview.project_id, FirstShotReview.outcome).where(
+                FirstShotReview.created_at >= since
+            )
+        )
+        return [(project_id, outcome.value) for project_id, outcome in rows]
 
     async def get_for_update(self, project_id: UUID, worker_id: UUID) -> FirstShotReview | None:
         return await self.session.scalar(

@@ -1,17 +1,19 @@
 import { ArrowsClockwise, CalendarBlank, Check, HourglassMedium, MapPin, UserPlus, X } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ApiError,
   api,
+  type DisputeStatusRead,
   type Engagement,
   type Prefill,
   type Project,
   type Standing,
   type WorkerView,
 } from "../api";
+import { currentLanguage } from "../i18n";
 import {
-  ANSWER_LABEL,
   Avatar,
   ErrorNote,
   InfoNote,
@@ -20,14 +22,18 @@ import {
   Status,
   SuccessNote,
   TierBadge,
+  answerLabel,
   availabilityText,
   date,
+  money,
+  percent,
   useSkillNames,
 } from "../ui";
 
 const IN_FLIGHT = ["pending_signature", "awaiting_signature"];
 
 function EngageForm({ worker, project }: { worker: WorkerView; project: Project }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const idempotencyKey = useMemo(() => crypto.randomUUID(), []);
   const prefill = useQuery({
@@ -44,7 +50,7 @@ function EngageForm({ worker, project }: { worker: WorkerView; project: Project 
     rate: prefill.data?.rate ?? (project.data_region === "EU" ? "380.00" : "450.00"),
     currency: prefill.data?.currency ?? (project.data_region === "EU" ? "EUR" : "GHS"),
     work_mode: prefill.data?.work_mode ?? "remote",
-    scope: prefill.data?.contract_terms.scope ?? `${project.name}: analysis work`,
+    scope: prefill.data?.contract_terms.scope ?? t("engage.defaultScope", { project: project.name }),
     ...overrides,
   };
   const set = (key: string) => (e: { target: { value: string } }) => setOverrides((o) => ({ ...o, [key]: e.target.value }));
@@ -77,49 +83,53 @@ function EngageForm({ worker, project }: { worker: WorkerView; project: Project 
 
   if (prefill.isLoading) return <Loading lines={2} />;
   if (!reactivating && !firstTime) return <ErrorNote error={prefill.error} />;
+  const lastDays = prefill.data?.last_days_to_start;
   return (
     <section className="drawer-section" aria-labelledby="engage-heading">
       <h2 id="engage-heading" className="row">
         {reactivating ? <ArrowsClockwise size={20} aria-hidden="true" /> : <UserPlus size={20} aria-hidden="true" />}
-        {reactivating ? "Reactivate" : "Engage for the first time"}
+        {reactivating ? t("engage.reactivate") : t("engage.firstTime")}
       </h2>
       {reactivating && (
         <p className="muted small-text top-gap">
-          Terms prefilled from their last engagement
-          {prefill.data?.last_days_to_start != null && ` · last time to start: ${prefill.data.last_days_to_start.toFixed(1)} days`}.
+          {t("engage.prefilled")}
+          {lastDays != null &&
+            ` · ${t("engage.lastTimeToStart", {
+              days: new Intl.NumberFormat(currentLanguage(), { maximumFractionDigits: 1 }).format(lastDays),
+            })}`}
         </p>
       )}
       <div className="form-grid">
         <label className="field">
-          Start date
+          {t("engage.startDate")}
           <input type="date" value={terms.start_date} onChange={set("start_date")} />
         </label>
         <label className="field">
-          Day rate
+          {t("engage.dayRate")}
           <input inputMode="decimal" value={terms.rate} onChange={set("rate")} />
         </label>
         <label className="field">
-          Currency
+          {t("engage.currency")}
           <input value={terms.currency} onChange={set("currency")} maxLength={3} />
         </label>
         <label className="field">
-          Work mode
+          {t("engagement.mode")}
           <select value={terms.work_mode} onChange={set("work_mode")}>
-            <option value="remote">Remote</option>
-            <option value="hybrid">Hybrid</option>
-            <option value="onsite">On site</option>
+            <option value="remote">{t("workMode.remote")}</option>
+            <option value="hybrid">{t("workMode.hybrid")}</option>
+            <option value="onsite">{t("workMode.onsite")}</option>
           </select>
         </label>
         <label className="field span-2">
-          Scope
+          {t("engagement.scope")}
           <input value={terms.scope} onChange={set("scope")} />
         </label>
       </div>
       {submit.isSuccess ? (
-        <SuccessNote>Engagement recorded. The contract is on its way to {worker.full_name}.</SuccessNote>
+        <SuccessNote>{t("engage.sent", { name: worker.full_name })}</SuccessNote>
       ) : (
         <button onClick={() => submit.mutate()} disabled={submit.isPending}>
-          {submit.isPending ? "Sending…" : "Confirm and send contract"}
+          {submit.isPending ? t("engage.sending") : t("engage.confirm")}
         </button>
       )}
       <ErrorNote error={submit.error} />
@@ -128,6 +138,7 @@ function EngageForm({ worker, project }: { worker: WorkerView; project: Project 
 }
 
 function FeedbackForm({ engagement, onDone }: { engagement: Engagement; onDone: () => void }) {
+  const { t } = useTranslation();
   const noteId = useId();
   const [answers, setAnswers] = useState<Record<string, boolean>>({
     delivered_on_agreed_dates: true,
@@ -146,7 +157,7 @@ function FeedbackForm({ engagement, onDone }: { engagement: Engagement; onDone: 
   return (
     <fieldset className="inline-form" style={{ border: 0 }}>
       <legend className="small-text" style={{ fontWeight: 600 }}>
-        Feedback (all three questions are required)
+        {t("feedback.legend")}
       </legend>
       {Object.keys(answers).map((key) => (
         <label key={key} className="check">
@@ -155,15 +166,15 @@ function FeedbackForm({ engagement, onDone }: { engagement: Engagement; onDone: 
             checked={answers[key]}
             onChange={(e) => setAnswers((a) => ({ ...a, [key]: e.target.checked }))}
           />
-          {ANSWER_LABEL[key]}
+          {answerLabel(key)}
         </label>
       ))}
       <label className="field" htmlFor={noteId}>
-        Note <span className="hint">Optional. The freelancer can read it.</span>
+        {t("feedback.note")} <span className="hint">{t("feedback.noteHint")}</span>
         <textarea id={noteId} rows={2} value={text} onChange={(e) => setText(e.target.value)} />
       </label>
       <button className="small" onClick={() => submit.mutate()} disabled={submit.isPending}>
-        Submit feedback
+        {t("feedback.submit")}
       </button>
       <ErrorNote error={submit.error} />
     </fieldset>
@@ -171,6 +182,7 @@ function FeedbackForm({ engagement, onDone }: { engagement: Engagement; onDone: 
 }
 
 function EngagementRow({ engagement, project }: { engagement: Engagement; project: Project }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const refresh = () => {
@@ -182,6 +194,9 @@ function EngagementRow({ engagement, project }: { engagement: Engagement; projec
     onSuccess: refresh,
   });
   const mine = engagement.project_id === project.id;
+  const positive = engagement.feedback
+    ? Object.values(engagement.feedback.structured_answers).filter(Boolean).length
+    : 0;
   return (
     <article className="list-item">
       <div className="row between wrap">
@@ -192,10 +207,8 @@ function EngagementRow({ engagement, project }: { engagement: Engagement; projec
               <CalendarBlank size={16} aria-hidden="true" />
               {date(engagement.start_date)} – {date(engagement.end_date)}
             </span>
-            <span className="num">
-              {engagement.rate} {engagement.currency}
-            </span>
-            <span>{engagement.path.replace("_", " ")}</span>
+            <span className="num">{money(engagement.rate, engagement.currency)}</span>
+            <span>{t(`engagement.path.${engagement.path}`)}</span>
           </div>
         </div>
         <Status value={engagement.status} />
@@ -205,24 +218,24 @@ function EngagementRow({ engagement, project }: { engagement: Engagement; projec
           {engagement.status === "pending_signature" && (
             <span className="muted small-text row" role="status">
               <HourglassMedium size={16} aria-hidden="true" />
-              Sending the contract…
+              {t("engagement.sending")}
             </span>
           )}
           {engagement.status === "awaiting_signature" && (
             <span className="muted small-text row" role="status">
               <HourglassMedium size={16} aria-hidden="true" />
-              Awaiting the freelancer's signature. This updates by itself once they sign.
+              {t("engagement.awaiting")}
             </span>
           )}
           {engagement.status === "active" && (
             <button className="small" onClick={() => complete.mutate()} disabled={complete.isPending}>
               <Check size={16} aria-hidden="true" />
-              Mark completed
+              {t("engagement.complete")}
             </button>
           )}
           {engagement.status === "completed" && !engagement.feedback && !feedbackOpen && (
             <button className="small" onClick={() => setFeedbackOpen(true)}>
-              Give feedback
+              {t("feedback.give")}
             </button>
           )}
         </div>
@@ -238,7 +251,7 @@ function EngagementRow({ engagement, project }: { engagement: Engagement; projec
       )}
       {engagement.feedback && (
         <p className="muted small-text top-gap">
-          Feedback: {Object.values(engagement.feedback.structured_answers).filter(Boolean).length} of 3 positive
+          {t("feedback.summary", { positive })}
           {engagement.feedback.free_text ? ` · “${engagement.feedback.free_text}”` : ""}
         </p>
       )}
@@ -256,6 +269,7 @@ export default function WorkerPanel({
   project: Project;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const titleId = useId();
   const skillName = useSkillNames();
   const dialogRef = useRef<HTMLElement>(null);
@@ -300,6 +314,11 @@ export default function WorkerPanel({
     queryFn: () => api<Standing>(`/workers/${workerId}/standing`),
     enabled: detail,
   });
+  const disputes = useQuery({
+    queryKey: ["worker-disputes", workerId],
+    queryFn: () => api<DisputeStatusRead[]>(`/workers/${workerId}/disputes`),
+    enabled: detail,
+  });
   const w = worker.data;
   const openEngagement = engagements.data?.some(
     (e) => e.project_id === project.id && !["completed", "cancelled"].includes(e.status),
@@ -332,9 +351,9 @@ export default function WorkerPanel({
               </div>
             </div>
           ) : (
-            <h2 id={titleId}>Freelancer</h2>
+            <h2 id={titleId}>{t("drawer.freelancer")}</h2>
           )}
-          <button ref={closeRef} className="secondary icon-btn" onClick={onClose} aria-label="Close">
+          <button ref={closeRef} className="secondary icon-btn" onClick={onClose} aria-label={t("common.close")}>
             <X size={20} aria-hidden="true" />
           </button>
         </div>
@@ -344,7 +363,7 @@ export default function WorkerPanel({
           <>
             <div className="row wrap">
               <TierBadge tier={w.standing_tier} />
-              <span className="pill">{detail ? "Detail view" : "Summary view"}</span>
+              <span className="pill">{detail ? t("drawer.detailView") : t("drawer.summaryView")}</span>
             </div>
             <div className="chips top-gap">
               {w.skills.map((s) => (
@@ -353,32 +372,38 @@ export default function WorkerPanel({
             </div>
             {!detail && (
               <div className="top-gap">
-                <InfoNote>
-                  History and feedback appear once you shortlist or engage this person on one of your projects.
-                </InfoNote>
+                <InfoNote>{t("drawer.summaryNote")}</InfoNote>
               </div>
             )}
             {standing.data && (
               <dl className="stats top-gap">
                 <div className="stat">
-                  <dt>Completed</dt>
+                  <dt>{t("standing.completed")}</dt>
                   <dd>{standing.data.factors.completed}</dd>
                 </div>
                 <div className="stat">
-                  <dt>Reviewers</dt>
+                  <dt>{t("standing.reviewers")}</dt>
                   <dd>{standing.data.factors.distinct_reviewers}</dd>
                 </div>
                 <div className="stat">
-                  <dt>Positive</dt>
-                  <dd>{Math.round(standing.data.factors.positive_ratio * 100)}%</dd>
+                  <dt>{t("standing.positive")}</dt>
+                  <dd>{percent(standing.data.factors.positive_ratio)}</dd>
                 </div>
               </dl>
+            )}
+            {disputes.data && disputes.data.length > 0 && (
+              <p className="small-text top-gap row wrap">
+                {t("drawer.disputes")}
+                {disputes.data.map((d) => (
+                  <Status key={d.id} value={d.resolution ?? d.status} />
+                ))}
+              </p>
             )}
             {!openEngagement && <EngageForm worker={w} project={project} />}
             {detail && (
               <section className="drawer-section" aria-labelledby="eng-heading">
-                <h2 id="eng-heading">Engagements</h2>
-                {engagements.data?.length === 0 && <p className="muted top-gap">None yet.</p>}
+                <h2 id="eng-heading">{t("passport.engagements.title")}</h2>
+                {engagements.data?.length === 0 && <p className="muted top-gap">{t("drawer.noEngagements")}</p>}
                 <div className="top-gap">
                   {engagements.data?.map((e) => (
                     <EngagementRow key={e.id} engagement={e} project={project} />

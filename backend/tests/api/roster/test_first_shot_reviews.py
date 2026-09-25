@@ -118,10 +118,10 @@ async def test_detail_ends_when_staffing_ends(
     client: AsyncClient, session: AsyncSession, settings: Settings
 ) -> None:
     pm, project, worker_id = await _panel(client, session, settings)
-    engaged = await client.post(
-        _review_url(project, worker_id), json={"outcome": "engaged"}, headers=bearer(settings, pm)
+    contacted = await client.post(
+        _review_url(project, worker_id), json={"outcome": "contacted"}, headers=bearer(settings, pm)
     )
-    assert engaged.status_code == 200
+    assert contacted.status_code == 200
     assert await _view(client, settings, pm, worker_id) == "detail"
 
     await session.execute(update(ProjectStaff).values(active_to=utcnow()))

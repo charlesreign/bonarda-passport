@@ -62,3 +62,11 @@ ruff format . && ruff check . && mypy && lint-imports && pytest
 
 Frontend (from `frontend/`): `npm install && npm run dev`. Vite proxies `/api` to `localhost:8000`,
 so run the API with `DEMO_MODE=true` (and the rest of `.env.example`) for the demo sign-in.
+
+Other frontend scripts:
+
+- `npm run gen:api` regenerates `openapi.json` from the backend and the types in `src/api-schema.d.ts`.
+  Run it after changing an API schema. `npm run check:api` fails if the committed files are stale.
+- `npm run size` checks the gzip size budgets after `npm run build`: `/passport` 150 KB, the project page and `/ops` 250 KB each.
+- The UI is in English and French (`src/locales/`). Use the EN/FR switch in the header.
+  A signed-in user's choice is saved to their account, which also sets the language of their emails.

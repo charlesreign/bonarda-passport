@@ -65,11 +65,13 @@ class FirstShotPanel(BaseModel):
 
 
 class FirstShotReviewCreate(BaseModel):
-    """FR-4.7: an outcome, and a fixed reason code when passing."""
+    """FR-4.7: an outcome, and a fixed reason code when passing. `engaged` is
+    not accepted: it is recorded when the PM actually engages the worker on the
+    project (roster.mark_first_shot_engaged)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    outcome: Literal["shortlisted", "contacted", "engaged", "passed"]
+    outcome: Literal["shortlisted", "contacted", "passed"]
     reason_code: PassReason | None = None
 
     @model_validator(mode="after")

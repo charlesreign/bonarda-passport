@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
-import { api, errorText } from "../api";
+import { api } from "../api";
 import { homeFor, useAuth } from "../auth";
 import { Card, ErrorNote, Loading } from "../ui";
 
 /** Magic-link landing page: the token arrives in the URL fragment. */
 export default function Verify() {
+  const { t } = useTranslation();
   const { signIn } = useAuth();
   const navigate = useNavigate();
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const started = useRef(false);
 
   useEffect(() => {
@@ -16,22 +18,22 @@ export default function Verify() {
     started.current = true;
     const token = new URLSearchParams(window.location.hash.slice(1)).get("token");
     if (!token) {
-      setError("This link is incomplete. Request a new one.");
+      setError(new Error(t("verify.incomplete")));
       return;
     }
     api<{ access_token: string }>("/auth/magic-link/verify", { method: "POST", body: { token } })
-      .then((t) => signIn(t.access_token))
+      .then((tokens) => signIn(tokens.access_token))
       .then((me) => navigate(homeFor(me), { replace: true }))
-      .catch((e) => setError(errorText(e)));
-  }, [navigate, signIn]);
+      .catch((e) => setError(e));
+  }, [navigate, signIn, t]);
 
   return (
     <div style={{ maxWidth: 480, margin: "48px auto" }}>
-      <Card title={error ? "We couldn't sign you in" : "Signing you in…"}>
+      <Card title={error ? t("verify.failed") : t("verify.signingIn")}>
         {error ? (
           <div className="stack">
             <ErrorNote error={error} />
-            <Link to="/login">Back to sign-in</Link>
+            <Link to="/login">{t("verify.back")}</Link>
           </div>
         ) : (
           <Loading lines={2} />

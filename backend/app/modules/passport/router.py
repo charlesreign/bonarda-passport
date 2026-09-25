@@ -16,11 +16,13 @@ from app.modules.identity.service import (
 from app.modules.passport.consents import ConsentService
 from app.modules.passport.dependencies import WorkerEditor, WorkerReader
 from app.modules.passport.enums import ConsentPurpose
+from app.modules.passport.erasure import anonymize_worker
 from app.modules.passport.invitations import InvitationService
 from app.modules.passport.profile import ProfileService
 from app.modules.passport.schemas import (
     ConsentRead,
     ConsentUpdate,
+    ErasureRequest,
     InvitationCreate,
     InvitationRead,
     SkillClaimCreate,
@@ -122,3 +124,18 @@ async def read_worker(
     level: Annotated[Visibility, Depends(require_visibility(Visibility.SUMMARY))],
 ) -> WorkerView:
     return await ProfileService(session).view(actor, worker_id, level)
+
+
+WorkerEraser = Annotated[Actor, Depends(require_permission(Permission.WORKER_ERASE))]
+
+
+@router.post("/workers/{worker_id}/anonymize", status_code=204)
+async def anonymize(
+    worker_id: UUID,
+    body: ErasureRequest,
+    actor: WorkerEraser,
+    session: SessionDep,
+    level: Annotated[Visibility, Depends(require_visibility(Visibility.DETAIL))],
+) -> None:
+    """Erasure request (GDPR / Ghana DPA, spec §6.3). People Ops only."""
+    await anonymize_worker(session, worker_id, actor=actor, reason=body.reason)

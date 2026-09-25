@@ -49,6 +49,12 @@ MESSAGES: dict[str, dict[str, str]] = {
         "dispute_sla.body": "These open disputes need a decision:\n\n{lines}",
         "dispute_sla.overdue": "overdue",
         "dispute_sla.due_soon": "due soon",
+        "concentration_alert.subject": "Concentration alert: {scope}",
+        "concentration_alert.body": (
+            "{share} of engagements in {scope} over the monitoring window went to "
+            "repeat workers, above the {threshold} threshold. Review the governance "
+            "dashboard and the first-shot panels."
+        ),
     },
     "fr": {
         "magic_link.subject": "Votre lien de connexion Bonarda",
@@ -96,6 +102,12 @@ MESSAGES: dict[str, dict[str, str]] = {
         "dispute_sla.body": "Ces contestations ouvertes attendent une décision :\n\n{lines}",
         "dispute_sla.overdue": "en retard",
         "dispute_sla.due_soon": "bientôt due",
+        "concentration_alert.subject": "Alerte de concentration : {scope}",
+        "concentration_alert.body": (
+            "{share} des missions dans {scope} sur la période suivie sont allées à des "
+            "personnes déjà engagées plusieurs fois, au-dessus du seuil de {threshold}. "
+            "Consultez le tableau de gouvernance et les panneaux de première chance."
+        ),
     },
 }
 DEFAULT_LOCALE = "en"

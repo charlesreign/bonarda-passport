@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, ClassVar, Literal, Self
 from uuid import UUID
 
@@ -99,9 +99,33 @@ class MatchingRules(BaseModel):
         return self
 
 
+class ConcentrationRules(BaseModel):
+    """Spec §2.1 #1, NFR-5.3: alert when too large a share of engagements goes
+    to workers already engaged `repeat_min_engagements` times in the window."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    window_days: int = Field(ge=30, le=730)
+    repeat_min_engagements: int = Field(ge=2, le=20)
+    alert_share: float = Field(gt=0, le=1)
+
+
+class RetentionRules(BaseModel):
+    """Spec §6.6. The seed periods need legal sign-off before live data."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dormant_profile_years: int = Field(ge=1, le=20)
+    feedback_text_years: int = Field(ge=1, le=20)
+    dispute_text_years: int = Field(ge=1, le=20)
+    audit_log_years: int = Field(ge=1, le=30)
+
+
 RULES_BY_KIND: dict[PolicyKind, type[BaseModel]] = {
     PolicyKind.TIERING: TieringRules,
     PolicyKind.MATCHING: MatchingRules,
+    PolicyKind.CONCENTRATION: ConcentrationRules,
+    PolicyKind.RETENTION: RetentionRules,
 }
 
 
@@ -225,3 +249,72 @@ class DisputeResolved(DomainEvent):
     target_type: DisputeTargetType
     target_id: UUID
     resolution: DisputeResolution
+
+
+class ConcentrationPolicy(BaseModel):
+    id: UUID
+    version: int
+    rules: ConcentrationRules
+
+
+class RetentionPolicy(BaseModel):
+    id: UUID
+    version: int
+    rules: RetentionRules
+
+
+class DisputeStatusRead(BaseModel):
+    """What detail-level viewers see (spec §7.1 "disputes status"): no reason
+    or notes text, which only the worker and People Ops read."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    target_type: DisputeTargetType
+    status: DisputeStatus
+    resolution: DisputeResolution | None
+    due_at: datetime
+    created_at: datetime
+    resolved_at: datetime | None
+
+
+class ConcentrationAlert(DomainEvent):
+    """aggregate_id is the concentration_rollups row."""
+
+    event_type: ClassVar[str] = "governance.concentration_alert"
+    scope: str
+    share: float
+    alert_share: float
+
+
+class ConcentrationRollupRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    period_start: date
+    period_end: date
+    scope: str
+    engagements_total: int
+    engagements_repeat: int
+    share: float
+    first_shot_shown: int
+    first_shot_engaged: int
+    tier_counts: dict[str, int]
+    alerted: bool
+
+
+class DisputeVolume(BaseModel):
+    open: int
+    overdue: int
+    resolved_30d: int
+    upheld_30d: int
+
+
+class GovernanceOverview(BaseModel):
+    """FR-7.1 / FR-4.8: concentration, dispute volume, tier distribution."""
+
+    alert_share: float
+    repeat_min_engagements: int
+    window_days: int
+    policy_version: int
+    concentration: list[ConcentrationRollupRead]
+    disputes: DisputeVolume

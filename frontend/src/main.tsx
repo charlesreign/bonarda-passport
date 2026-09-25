@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { AuthProvider } from "./auth";
+import "./i18n";
 import "./styles.css";
 
 // Spec §7.8: 30 s staleness, refetch on focus, retry only transient failures.

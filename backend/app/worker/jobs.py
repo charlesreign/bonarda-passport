@@ -15,6 +15,7 @@ from app.modules.governance.service import remind_due_disputes
 from app.modules.identity.grants import GrantService
 from app.modules.roster.service import rebuild_all
 from app.modules.standing.service import recalculate_all_standing
+from app.nightly import run_concentration_rollup, run_retention
 
 MAX_HANDLER_TRIES = 5
 DEAD_LETTER_KEY = "outbox:dead_letter"
@@ -81,3 +82,13 @@ async def remind_dispute_sla(ctx: dict[str, Any]) -> int:
             now=utcnow(),
             warn_days=ctx["settings"].dispute_reminder_days,
         )
+
+
+async def concentration_rollup(ctx: dict[str, Any]) -> int:
+    async with ctx["sessionmaker"]() as session, session.begin():
+        return await run_concentration_rollup(session)
+
+
+async def retention_enforcement(ctx: dict[str, Any]) -> dict[str, int]:
+    async with ctx["sessionmaker"]() as session, session.begin():
+        return await run_retention(session)

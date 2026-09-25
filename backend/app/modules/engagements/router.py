@@ -77,6 +77,13 @@ async def set_project_staff(
     return await ProjectService(session, settings).set_staff(actor, project_id, body)
 
 
+@router.post("/projects/{project_id}/close")
+async def close_project(
+    project_id: UUID, actor: ProjectManager, session: SessionDep, settings: SettingsDep
+) -> ProjectRead:
+    return await ProjectService(session, settings).close(actor, project_id)
+
+
 @router.get("/workers/{worker_id}/engagements")
 async def list_worker_engagements(
     worker_id: UUID,

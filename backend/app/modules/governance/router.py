@@ -6,20 +6,35 @@ from fastapi import APIRouter, Depends, Query, Request
 from app.core.context import Actor
 from app.core.db.session import SessionDep
 from app.core.deps import SettingsDep
+from app.core.errors import Forbidden
+from app.core.time import utcnow
 from app.modules.governance.audit import audit_trail
+from app.modules.governance.concentration import concentration_history, governance_overview
 from app.modules.governance.disputes import DisputeService, DisputeTargetOwners
 from app.modules.governance.enums import DisputeStatus, PolicyKind
 from app.modules.governance.policies import PolicyService
+from app.modules.governance.repository import DisputeRepository
 from app.modules.governance.schemas import (
     AuditLogPage,
+    ConcentrationRollupRead,
     DisputeCreate,
     DisputePage,
     DisputeRead,
     DisputeResolve,
+    DisputeStatusRead,
+    GovernanceOverview,
     PolicyCreate,
     PolicyRead,
 )
-from app.modules.identity.service import CurrentActor, Permission, require_permission
+from app.modules.identity.service import (
+    CurrentActor,
+    Permission,
+    Visibility,
+    can_view_governance,
+    has_permission,
+    require_permission,
+    require_visibility,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["governance"])
 
@@ -110,3 +125,45 @@ async def resolve_dispute(
     return DisputeRead.model_validate(
         await DisputeService(session).resolve(actor, dispute_id, body)
     )
+
+
+@router.get("/workers/{worker_id}/disputes")
+async def worker_dispute_status(
+    worker_id: UUID,
+    session: SessionDep,
+    level: Annotated[Visibility, Depends(require_visibility(Visibility.DETAIL))],
+) -> list[DisputeStatusRead]:
+    return [
+        DisputeStatusRead.model_validate(d)
+        for d in await DisputeRepository(session).status_for_worker(worker_id)
+    ]
+
+
+async def governance_reader(actor: CurrentActor, session: SessionDep) -> Actor:
+    """People Ops and admins, plus PM leadership with the account flag
+    (spec §7.2 governance endpoints)."""
+    if has_permission(actor.role, Permission.GOVERNANCE_READ):
+        return actor
+    if await can_view_governance(session, actor.user_id):
+        return actor
+    raise Forbidden("Missing permission governance:read", code="permission_denied")
+
+
+GovernanceReader = Annotated[Actor, Depends(governance_reader)]
+
+
+@router.get("/governance/overview")
+async def read_governance_overview(
+    actor: GovernanceReader, session: SessionDep
+) -> GovernanceOverview:
+    return await governance_overview(session, utcnow())
+
+
+@router.get("/governance/concentration")
+async def read_concentration(
+    actor: GovernanceReader,
+    session: SessionDep,
+    scope: Annotated[str, Query(pattern=r"^[A-Z]{2,8}$")] = "ORG",
+    limit: Annotated[int, Query(ge=1, le=366)] = 30,
+) -> list[ConcentrationRollupRead]:
+    return await concentration_history(session, scope, limit)

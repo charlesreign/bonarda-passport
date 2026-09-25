@@ -4,6 +4,7 @@
 from app.modules.identity.accounts import (
     account_contact,
     active_pm_ids,
+    can_view_governance,
     find_worker_account,
     provision_worker_account,
     request_sign_in_link,
@@ -27,6 +28,7 @@ __all__ = [
     "VisibilitySource",
     "account_contact",
     "active_pm_ids",
+    "can_view_governance",
     "find_worker_account",
     "has_permission",
     "provision_worker_account",

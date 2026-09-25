@@ -245,15 +245,19 @@ async def drain_outbox(
     raise AssertionError("outbox did not drain")
 
 
-def _seed_policy_rows() -> list[dict[str, Any]]:
-    """The seed policies exactly as migration 0008 inserts them."""
-    path = BACKEND_DIR / "alembic" / "versions" / "0008_policies.py"
-    spec = importlib.util.spec_from_file_location("bonarda_migration_0008", path)
+def _migration_seeds(filename: str) -> list[dict[str, Any]]:
+    path = BACKEND_DIR / "alembic" / "versions" / filename
+    spec = importlib.util.spec_from_file_location(f"bonarda_{path.stem}", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     seeds: list[dict[str, Any]] = module.SEED_POLICIES
     return seeds
+
+
+def _seed_policy_rows() -> list[dict[str, Any]]:
+    """The seed policies exactly as migrations 0008 and 0014 insert them."""
+    return _migration_seeds("0008_policies.py") + _migration_seeds("0014_policy_seeds.py")
 
 
 async def seed_policies(conn: AsyncConnection) -> None:

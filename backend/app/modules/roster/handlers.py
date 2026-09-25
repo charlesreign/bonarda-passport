@@ -10,9 +10,16 @@ from app.modules.engagements.schemas import (
     EngagementActivated,
     EngagementCancelled,
     EngagementCompleted,
+    EngagementCreated,
 )
 from app.modules.engagements.service import engagement_worker_id
-from app.modules.passport.schemas import ConsentChanged, WorkerInvited, WorkerUpdated
+from app.modules.passport.schemas import (
+    ConsentChanged,
+    WorkerAnonymized,
+    WorkerInvited,
+    WorkerUpdated,
+)
+from app.modules.roster.first_shot import mark_first_shot_engaged
 from app.modules.roster.refresh import refresh_worker
 from app.modules.standing.schemas import SkillVerified, StandingChanged
 
@@ -20,6 +27,7 @@ from app.modules.standing.schemas import SkillVerified, StandingChanged
 _WORKER_EVENTS: tuple[type[DomainEvent], ...] = (
     WorkerInvited,
     WorkerUpdated,
+    WorkerAnonymized,
     ConsentChanged,
     StandingChanged,
     SkillVerified,
@@ -51,3 +59,10 @@ def register(registry: HandlerRegistry) -> None:
     registry.register(
         ContractSigned, f"roster.refresh_worker:{ContractSigned.event_type}", by_engagement
     )
+
+    async def first_shot_engaged(session: AsyncSession, payload: dict[str, Any]) -> None:
+        await mark_first_shot_engaged(
+            session, UUID(payload["project_id"]), UUID(payload["worker_id"])
+        )
+
+    registry.register(EngagementCreated, "roster.mark_first_shot_engaged", first_shot_engaged)

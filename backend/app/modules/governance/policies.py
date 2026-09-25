@@ -16,11 +16,15 @@ from app.modules.governance.models import PolicyConfig
 from app.modules.governance.repository import PolicyRepository
 from app.modules.governance.schemas import (
     RULES_BY_KIND,
+    ConcentrationPolicy,
+    ConcentrationRules,
     MatchingPolicy,
     MatchingRules,
     PolicyActivated,
     PolicyCreate,
     PolicyRead,
+    RetentionPolicy,
+    RetentionRules,
     TieringPolicy,
     TieringRules,
 )
@@ -145,6 +149,24 @@ async def active_matching(session: AsyncSession) -> MatchingPolicy:
         raise RuntimeError("no active matching policy; migration 0008 seeds one")
     return MatchingPolicy(
         id=policy.id, version=policy.version, rules=MatchingRules.model_validate(policy.rules)
+    )
+
+
+async def active_concentration(session: AsyncSession) -> ConcentrationPolicy:
+    policy = await PolicyRepository(session).active(PolicyKind.CONCENTRATION)
+    if policy is None:
+        raise RuntimeError("no active concentration policy; migration 0014 seeds one")
+    return ConcentrationPolicy(
+        id=policy.id, version=policy.version, rules=ConcentrationRules.model_validate(policy.rules)
+    )
+
+
+async def active_retention(session: AsyncSession) -> RetentionPolicy:
+    policy = await PolicyRepository(session).active(PolicyKind.RETENTION)
+    if policy is None:
+        raise RuntimeError("no active retention policy; migration 0014 seeds one")
+    return RetentionPolicy(
+        id=policy.id, version=policy.version, rules=RetentionRules.model_validate(policy.rules)
     )
 
 

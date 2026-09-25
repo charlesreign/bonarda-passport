@@ -15,17 +15,16 @@ import {
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   api,
   type Consent,
-  type Dispute,
+  type DisputePage,
   type Engagement,
-  type Page,
   type Standing,
-  type WorkerView,
+  type WorkerSelf,
 } from "../api";
 import {
-  ANSWER_LABEL,
   Avatar,
   Card,
   Empty,
@@ -36,18 +35,25 @@ import {
   Status,
   SuccessNote,
   TierBadge,
+  answerLabel,
   availabilityText,
   date,
   dateTime,
-  labelFor,
+  money,
+  percent,
+  tierLabel,
   useSkillNames,
 } from "../ui";
 
-function DisputeButton({ targetType, targetId, label }: { targetType: string; targetId: string; label: string }) {
+type Target = "engagement" | "feedback" | "standing_change";
+
+function DisputeButton({ targetType, targetId }: { targetType: Target; targetId: string }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const fieldId = useId();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
+  const target = t(`targets.${targetType}`);
   const file = useMutation({
     mutationFn: () =>
       api("/disputes", { method: "POST", body: { target_type: targetType, target_id: targetId, reason } }),
@@ -60,26 +66,30 @@ function DisputeButton({ targetType, targetId, label }: { targetType: string; ta
   if (!open)
     return (
       <>
-        <button className="ghost small" onClick={() => setOpen(true)} aria-label={`Dispute ${label}`}>
+        <button
+          className="ghost small"
+          onClick={() => setOpen(true)}
+          aria-label={t("passport.dispute.aria", { target })}
+        >
           <Flag size={16} aria-hidden="true" />
-          Dispute
+          {t("passport.dispute.button")}
         </button>
-        {file.isSuccess && <SuccessNote>Dispute filed. People Ops will review it.</SuccessNote>}
+        {file.isSuccess && <SuccessNote>{t("passport.dispute.filed")}</SuccessNote>}
       </>
     );
   return (
     <div className="inline-form" style={{ width: "100%" }}>
       <label className="field" htmlFor={fieldId}>
-        What is wrong with this {label}?
-        <span className="hint">At least 10 characters. People Ops reply within 30 days.</span>
+        {t("passport.dispute.question", { target })}
+        <span className="hint">{t("passport.dispute.hint")}</span>
         <textarea id={fieldId} rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />
       </label>
       <div className="row">
         <button className="small" disabled={reason.trim().length < 10 || file.isPending} onClick={() => file.mutate()}>
-          File dispute
+          {t("passport.dispute.file")}
         </button>
         <button className="secondary small" onClick={() => setOpen(false)}>
-          Cancel
+          {t("common.cancel")}
         </button>
       </div>
       <ErrorNote error={file.error} />
@@ -87,7 +97,8 @@ function DisputeButton({ targetType, targetId, label }: { targetType: string; ta
   );
 }
 
-function Profile({ me }: { me: WorkerView }) {
+function Profile({ me }: { me: WorkerSelf }) {
+  const { t } = useTranslation();
   const skillName = useSkillNames();
   const queryClient = useQueryClient();
   const [status, setStatus] = useState(me.availability_status);
@@ -101,49 +112,49 @@ function Profile({ me }: { me: WorkerView }) {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["me-worker"] }),
   });
   return (
-    <Card title="Profile" icon={<Briefcase size={20} aria-hidden="true" />}>
+    <Card title={t("passport.profile.title")} icon={<Briefcase size={20} aria-hidden="true" />}>
       <div className="meta">
         <span>
           <MapPin size={16} aria-hidden="true" />
-          {me.base_location ?? "No location"}
+          {me.base_location ?? t("passport.profile.noLocation")}
         </span>
         <span>
           <Globe size={16} aria-hidden="true" />
-          Region {me.data_region}
+          {t("passport.profile.region", { region: me.data_region })}
         </span>
         <span>
           <Translate size={16} aria-hidden="true" />
-          {me.languages?.join(", ").toUpperCase()}
+          {me.languages.join(", ").toUpperCase()}
         </span>
       </div>
-      <h3>Skills</h3>
+      <h3>{t("passport.profile.skills")}</h3>
       <div className="chips">
         {me.skills.map((s) => (
           <SkillPill key={s.skill_id} name={skillName(s.skill_id)} verified={s.verification_status === "bonarda_verified"} />
         ))}
       </div>
-      <h3>Availability</h3>
+      <h3>{t("passport.profile.availability")}</h3>
       <div className="row wrap" style={{ alignItems: "flex-end" }}>
         <label className="field">
-          Status
-          <select value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="available">Available now</option>
-            <option value="available_from">Available from a date</option>
-            <option value="unavailable">Unavailable</option>
+          {t("passport.profile.status")}
+          <select value={status} onChange={(e) => setStatus(e.target.value as WorkerSelf["availability_status"])}>
+            <option value="available">{t("availability.now")}</option>
+            <option value="available_from">{t("passport.profile.fromDate")}</option>
+            <option value="unavailable">{t("availability.unavailable")}</option>
           </select>
         </label>
         {status === "available_from" && (
           <label className="field">
-            From
+            {t("passport.profile.from")}
             <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
           </label>
         )}
         <button className="secondary" onClick={() => save.mutate()} disabled={save.isPending}>
-          {save.isPending ? "Saving…" : "Save"}
+          {save.isPending ? t("common.saving") : t("common.save")}
         </button>
       </div>
       <p className="muted small-text top-gap">
-        Project managers see: {availabilityText(me.availability_status, me.available_from)}
+        {t("passport.profile.pmsSee", { value: availabilityText(me.availability_status, me.available_from) })}
       </p>
       <ErrorNote error={save.error} />
     </Card>
@@ -151,15 +162,16 @@ function Profile({ me }: { me: WorkerView }) {
 }
 
 function StandingCard() {
+  const { t } = useTranslation();
   const { data, error, isLoading } = useQuery({
     queryKey: ["my-standing"],
     queryFn: () => api<Standing>("/workers/me/standing"),
   });
   return (
     <Card
-      title="My standing"
+      title={t("passport.standing.title")}
       icon={<ShieldCheck size={20} aria-hidden="true" />}
-      subtitle={data && `Policy v${data.policy_version} · feedback from the last ${data.window_months} months`}
+      subtitle={data && t("passport.standing.subtitle", { version: data.policy_version, months: data.window_months })}
     >
       {isLoading && <Loading />}
       <ErrorNote error={error} />
@@ -169,55 +181,52 @@ function StandingCard() {
             <TierBadge tier={data.tier} large />
             <dl className="stats">
               <div className="stat">
-                <dt>Completed</dt>
+                <dt>{t("standing.completed")}</dt>
                 <dd>{data.factors.completed}</dd>
               </div>
               <div className="stat">
-                <dt>Reviewers</dt>
+                <dt>{t("standing.reviewers")}</dt>
                 <dd>{data.factors.distinct_reviewers}</dd>
               </div>
               <div className="stat">
-                <dt>Positive</dt>
-                <dd>{Math.round(data.factors.positive_ratio * 100)}%</dd>
+                <dt>{t("standing.positive")}</dt>
+                <dd>{percent(data.factors.positive_ratio)}</dd>
               </div>
             </dl>
           </div>
           {data.evaluated_tier !== data.tier && (
             <div className="top-gap">
-              <InfoNote>
-                The rules currently give {data.evaluated_tier.replace("_", " ")}; People Ops set your
-                tier by hand.
-              </InfoNote>
+              <InfoNote>{t("passport.standing.overridden", { tier: tierLabel(data.evaluated_tier) })}</InfoNote>
             </div>
           )}
-          <h3>How tiers are earned</h3>
+          <h3>{t("passport.standing.howEarned")}</h3>
           <div>
             <table className="table compact">
               <thead>
                 <tr>
-                  <th scope="col">Tier</th>
-                  <th scope="col">Completed</th>
-                  <th scope="col">Reviewers</th>
-                  <th scope="col">Positive</th>
+                  <th scope="col">{t("standing.tier")}</th>
+                  <th scope="col">{t("standing.completed")}</th>
+                  <th scope="col">{t("standing.reviewers")}</th>
+                  <th scope="col">{t("standing.positive")}</th>
                 </tr>
               </thead>
               <tbody>
-                {data.tiers.map((t) => (
-                  <tr key={t.tier}>
+                {data.tiers.map((rule) => (
+                  <tr key={rule.tier}>
                     <td>
-                      <TierBadge tier={t.tier} short />
+                      <TierBadge tier={rule.tier} short />
                     </td>
-                    <td className="num">≥ {t.min_completed}</td>
-                    <td className="num">≥ {t.min_distinct_reviewers}</td>
-                    <td className="num">≥ {Math.round(t.min_positive_ratio * 100)}%</td>
+                    <td className="num">≥ {rule.min_completed}</td>
+                    <td className="num">≥ {rule.min_distinct_reviewers}</td>
+                    <td className="num">≥ {percent(rule.min_positive_ratio)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <h3>History</h3>
+          <h3>{t("passport.standing.history")}</h3>
           {data.history.length === 0 ? (
-            <p className="muted">No changes yet.</p>
+            <p className="muted">{t("passport.standing.noChanges")}</p>
           ) : (
             <ul className="timeline">
               {data.history.map((c) => (
@@ -225,15 +234,17 @@ function StandingCard() {
                   <div>
                     <div className="row wrap">
                       <TierBadge tier={c.previous_tier} />
-                      <span aria-label="to">→</span>
+                      <span aria-label={t("common.to")}>→</span>
                       <TierBadge tier={c.new_tier} />
                     </div>
                     <p className="muted small-text">
                       {dateTime(c.occurred_at)} ·{" "}
-                      {c.automated ? `rules, policy v${c.policy_version}` : `People Ops: “${c.override_reason}”`}
+                      {c.automated
+                        ? t("passport.standing.byRules", { version: c.policy_version })
+                        : t("passport.standing.byPeopleOps", { reason: c.override_reason })}
                     </p>
                   </div>
-                  <DisputeButton targetType="standing_change" targetId={c.id} label="standing change" />
+                  <DisputeButton targetType="standing_change" targetId={c.id} />
                 </li>
               ))}
             </ul>
@@ -249,6 +260,7 @@ const IN_FLIGHT = ["pending_signature", "awaiting_signature"];
 /** The freelancer's side of the e-signature step. In production the provider
  * emails the contract; in the demo this card plays that role. */
 function ContractToSign({ engagement }: { engagement: Engagement }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const sign = useMutation({
     mutationFn: () => api(`/demo/engagements/${engagement.id}/sign`, { method: "POST" }),
@@ -261,35 +273,36 @@ function ContractToSign({ engagement }: { engagement: Engagement }) {
     return (
       <p className="muted small-text row top-gap" role="status">
         <HourglassMedium size={16} aria-hidden="true" />
-        Your contract is being prepared. It will appear here to sign in a moment.
+        {t("passport.contract.preparing")}
       </p>
     );
   return (
     <div className="panel-soft top-gap" style={{ borderLeft: "3px solid var(--color-highlight)" }}>
       <p className="row" style={{ fontWeight: 650 }}>
         <PenNib size={18} aria-hidden="true" />
-        Contract ready for your signature
+        {t("passport.contract.ready")}
       </p>
       <dl className="meta top-gap" style={{ margin: 0 }}>
         <span>
-          <strong>Scope:</strong>&nbsp;{engagement.contract_terms.scope}
+          <strong>{t("engagement.scope")}:</strong>&nbsp;{engagement.contract_terms.scope}
         </span>
         <span>
-          <strong>Start:</strong>&nbsp;{date(engagement.start_date)}
+          <strong>{t("engagement.start")}:</strong>&nbsp;{date(engagement.start_date)}
         </span>
         <span className="num">
-          <strong>Rate:</strong>&nbsp;{engagement.rate} {engagement.currency}/day
+          <strong>{t("engagement.rate")}:</strong>&nbsp;
+          {t("engagement.perDay", { amount: money(engagement.rate, engagement.currency) })}
         </span>
         <span>
-          <strong>Mode:</strong>&nbsp;{engagement.work_mode}
+          <strong>{t("engagement.mode")}:</strong>&nbsp;{t(`workMode.${engagement.work_mode}`)}
         </span>
       </dl>
       <div className="row wrap top-gap">
         <button className="small" onClick={() => sign.mutate()} disabled={sign.isPending}>
           <PenNib size={16} aria-hidden="true" />
-          {sign.isPending ? "Signing…" : "Sign contract"}
+          {sign.isPending ? t("passport.contract.signing") : t("passport.contract.sign")}
         </button>
-        <span className="muted small-text">Demo e-signature: stands in for the provider's signing email.</span>
+        <span className="muted small-text">{t("passport.contract.demoNote")}</span>
       </div>
       <ErrorNote error={sign.error} />
     </div>
@@ -297,6 +310,7 @@ function ContractToSign({ engagement }: { engagement: Engagement }) {
 }
 
 function Engagements({ workerId }: { workerId: string }) {
+  const { t } = useTranslation();
   const { data, error, isLoading } = useQuery({
     queryKey: ["engagements", workerId],
     queryFn: () => api<Engagement[]>(`/workers/${workerId}/engagements`),
@@ -304,11 +318,11 @@ function Engagements({ workerId }: { workerId: string }) {
     refetchInterval: (query) => (query.state.data?.some((e) => IN_FLIGHT.includes(e.status)) ? 2000 : false),
   });
   return (
-    <Card title="Engagements" icon={<ClockCounterClockwise size={20} aria-hidden="true" />}>
+    <Card title={t("passport.engagements.title")} icon={<ClockCounterClockwise size={20} aria-hidden="true" />}>
       {isLoading && <Loading />}
       <ErrorNote error={error} />
       {data?.length === 0 && (
-        <Empty icon={<Briefcase size={40} aria-hidden="true" />}>No engagements yet.</Empty>
+        <Empty icon={<Briefcase size={40} aria-hidden="true" />}>{t("passport.engagements.none")}</Empty>
       )}
       {data?.map((e) => (
         <article key={e.id} className="list-item">
@@ -320,16 +334,14 @@ function Engagements({ workerId }: { workerId: string }) {
                   <CalendarBlank size={16} aria-hidden="true" />
                   {date(e.start_date)} – {date(e.end_date)}
                 </span>
-                <span className="num">
-                  {e.rate} {e.currency}/day
-                </span>
-                <span>{e.work_mode}</span>
-                {e.path === "reactivation" && <span>Reactivation</span>}
+                <span className="num">{t("engagement.perDay", { amount: money(e.rate, e.currency) })}</span>
+                <span>{t(`workMode.${e.work_mode}`)}</span>
+                {e.path === "reactivation" && <span>{t("engagement.reactivation")}</span>}
               </div>
             </div>
             <div className="row">
               <Status value={e.status} />
-              <DisputeButton targetType="engagement" targetId={e.id} label="engagement" />
+              <DisputeButton targetType="engagement" targetId={e.id} />
             </div>
           </div>
           {IN_FLIGHT.includes(e.status) && <ContractToSign engagement={e} />}
@@ -339,16 +351,16 @@ function Engagements({ workerId }: { workerId: string }) {
                 {Object.entries(e.feedback.structured_answers).map(([k, v]) => (
                   <li key={k}>
                     {v ? (
-                      <Check size={16} weight="bold" className="yes" aria-label="Yes" />
+                      <Check size={16} weight="bold" className="yes" aria-label={t("common.yes")} />
                     ) : (
-                      <X size={16} weight="bold" className="no" aria-label="No" />
+                      <X size={16} weight="bold" className="no" aria-label={t("common.no")} />
                     )}
-                    {ANSWER_LABEL[k] ?? k}
+                    {answerLabel(k)}
                   </li>
                 ))}
               </ul>
               {e.feedback.free_text && <p className="quote">{e.feedback.free_text}</p>}
-              <DisputeButton targetType="feedback" targetId={e.feedback.id} label="feedback" />
+              <DisputeButton targetType="feedback" targetId={e.feedback.id} />
             </div>
           )}
         </article>
@@ -358,6 +370,7 @@ function Engagements({ workerId }: { workerId: string }) {
 }
 
 function Consents() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data } = useQuery({ queryKey: ["consents"], queryFn: () => api<Consent[]>("/workers/me/consents") });
   const toggle = useMutation({
@@ -365,16 +378,12 @@ function Consents() {
       api(`/workers/me/consents/${c.purpose}`, { method: "PUT", body: { granted: !c.granted } }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["consents"] }),
   });
-  const LABEL: Record<string, string> = {
-    cross_region_matching: "Show me to projects in other regions",
-    external_prefill: "Prefill my profile from external credentials",
-  };
   return (
-    <Card title="Privacy" subtitle="You can change these at any time.">
+    <Card title={t("passport.privacy.title")} subtitle={t("passport.privacy.subtitle")}>
       {data?.map((c) => (
         <label key={c.purpose} className="check">
           <input type="checkbox" checked={c.granted} onChange={() => toggle.mutate(c)} />
-          {LABEL[c.purpose] ?? c.purpose}
+          {t(`passport.privacy.${c.purpose}`)}
         </label>
       ))}
       <ErrorNote error={toggle.error} />
@@ -383,23 +392,24 @@ function Consents() {
 }
 
 function MyDisputes() {
-  const { data } = useQuery({ queryKey: ["my-disputes"], queryFn: () => api<Page<Dispute>>("/disputes") });
+  const { t } = useTranslation();
+  const { data } = useQuery({ queryKey: ["my-disputes"], queryFn: () => api<DisputePage>("/disputes") });
   return (
-    <Card title="My disputes" icon={<Scales size={20} aria-hidden="true" />}>
-      {data?.items.length === 0 && <p className="muted">None filed. Use “Dispute” on any record you think is wrong.</p>}
+    <Card title={t("passport.disputes.title")} icon={<Scales size={20} aria-hidden="true" />}>
+      {data?.items.length === 0 && <p className="muted">{t("passport.disputes.none")}</p>}
       {data?.items.map((d) => (
         <article key={d.id} className="list-item">
           <div className="row between wrap">
-            <strong>{labelFor(d.target_type.replace("_", "-"))}</strong>
+            <strong>{t(`targets.${d.target_type}`)}</strong>
             <Status value={d.resolution ?? d.status} />
           </div>
           <p className="muted small-text">
-            Filed {date(d.created_at)} · reply due {date(d.due_at)}
+            {t("passport.disputes.dates", { filed: date(d.created_at), due: date(d.due_at) })}
           </p>
           <p className="quote">{d.reason}</p>
           {d.resolution_notes && (
             <p className="small-text">
-              <strong>People Ops:</strong> {d.resolution_notes}
+              <strong>{t("roles.people_ops")}:</strong> {d.resolution_notes}
             </p>
           )}
         </article>
@@ -409,7 +419,8 @@ function MyDisputes() {
 }
 
 export default function Passport() {
-  const { data: me, error } = useQuery({ queryKey: ["me-worker"], queryFn: () => api<WorkerView>("/workers/me") });
+  const { t } = useTranslation();
+  const { data: me, error } = useQuery({ queryKey: ["me-worker"], queryFn: () => api<WorkerSelf>("/workers/me") });
   if (error) return <ErrorNote error={error} />;
   if (!me) return <Loading lines={4} />;
   return (
@@ -418,7 +429,7 @@ export default function Passport() {
         <div className="person">
           <Avatar name={me.full_name} large />
           <div>
-            <p className="eyebrow">My passport</p>
+            <p className="eyebrow">{t("nav.passport")}</p>
             <h1>{me.full_name}</h1>
             <p>{availabilityText(me.availability_status, me.available_from)}</p>
           </div>
