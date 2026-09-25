@@ -5,5 +5,7 @@ import { defineConfig } from "vite";
 // cookie stays same-origin.
 export default defineConfig({
   plugins: [react()],
+  // The manifest lets scripts/check-size.mjs follow each route's chunk graph.
+  build: { manifest: true },
   server: { proxy: { "/api": "http://localhost:8000" } },
 });

@@ -1,27 +1,31 @@
 import { ArrowRight, Buildings, CalendarBlank, FolderSimple, Globe } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { api, type Project } from "../api";
 import { Card, Empty, ErrorNote, Loading, Pill, date, useSkillNames } from "../ui";
 
+const ARCHIVE_PREFIX = "Archive — ";
+
 export default function Console() {
+  const { t } = useTranslation();
   const skillName = useSkillNames();
   const { data, error, isLoading } = useQuery({ queryKey: ["projects"], queryFn: () => api<Project[]>("/projects") });
-  const live = (data ?? []).filter((p) => !p.name.startsWith("Archive"));
-  const archive = (data ?? []).filter((p) => p.name.startsWith("Archive"));
+  const live = (data ?? []).filter((p) => !p.name.startsWith(ARCHIVE_PREFIX));
+  const archive = (data ?? []).filter((p) => p.name.startsWith(ARCHIVE_PREFIX));
   return (
     <>
       <div className="page-head">
         <div>
-          <p className="eyebrow">Staffing</p>
-          <h1>My projects</h1>
-          <p>Pick a project to see scored candidates and this project's first-shot panel.</p>
+          <p className="eyebrow">{t("nav.staffing")}</p>
+          <h1>{t("console.title")}</h1>
+          <p>{t("console.lead")}</p>
         </div>
       </div>
       <ErrorNote error={error} />
       {isLoading && <Loading lines={4} />}
       {data && live.length === 0 && (
-        <Empty icon={<FolderSimple size={40} aria-hidden="true" />}>You are not staffed on any live project.</Empty>
+        <Empty icon={<FolderSimple size={40} aria-hidden="true" />}>{t("console.none")}</Empty>
       )}
       <div className="project-grid">
         {live.map((p) => (
@@ -31,7 +35,7 @@ export default function Console() {
               <div className="meta top-gap">
                 <span>
                   <Buildings size={16} aria-hidden="true" />
-                  {p.client_name ?? "Internal"}
+                  {p.client_name ?? t("project.internal")}
                 </span>
                 <span>
                   <Globe size={16} aria-hidden="true" />
@@ -39,7 +43,7 @@ export default function Console() {
                 </span>
                 <span>
                   <CalendarBlank size={16} aria-hidden="true" />
-                  Starts {date(p.starts_on)}
+                  {t("project.starts", { date: date(p.starts_on) })}
                 </span>
               </div>
             </div>
@@ -49,17 +53,17 @@ export default function Console() {
               ))}
             </div>
             <span className="go">
-              Open staffing <ArrowRight size={16} aria-hidden="true" />
+              {t("console.open")} <ArrowRight size={16} aria-hidden="true" />
             </span>
           </Link>
         ))}
       </div>
       {archive.length > 0 && (
-        <div className="top-gap" style={{ marginTop: 32 }}>
-          <Card title="Past projects" subtitle="Engagement history for reactivation and feedback.">
+        <div style={{ marginTop: 32 }}>
+          <Card title={t("console.past")} subtitle={t("console.pastLead")}>
             {archive.map((p) => (
               <p key={p.id} className="list-item">
-                <Link to={`/console/projects/${p.id}`}>{p.name.replace("Archive — ", "")}</Link>
+                <Link to={`/console/projects/${p.id}`}>{p.name.replace(ARCHIVE_PREFIX, "")}</Link>
               </p>
             ))}
           </Card>

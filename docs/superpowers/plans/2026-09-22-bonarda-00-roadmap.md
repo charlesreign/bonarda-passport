@@ -12,9 +12,9 @@ The spec's MVA (§10) is delivered as six sequential plans. Each plan ends with 
 | 3A | `2026-09-25-bonarda-03a-standing.md` | governance policies (versioned, two-person activation), standing (rules engine, append-only standing changes, skill evidence and verification, re-evaluation on activation and nightly, explanation API) | 2B | Implemented on `feat/standing` |
 | 3B | `2026-09-26-bonarda-03b-roster.md` | roster (read-model, scoring, candidates, first-shot, impression logging, first-shot visibility source) | 3A | Implemented on `feat/roster` |
 | 4A | `2026-09-27-bonarda-04a-governance.md` | Disputes with SLA (upheld → excluded from standing), standing overrides, audit-log API, worker and PM notifications, dispute SLA digest, policy DB invariants, identity and passport audit carry-forwards | 3B | Implemented on `feat/governance` |
-| 4B | `…-04b-projects-and-retention.md` | Closing projects, first-shot transition rules and derived `engaged`, concentration rollups and alerts, governance overview, retention enforcement and anonymization | 4A | Not written |
-| 5 | `…-05-frontend.md` | Vite/React app: generated API client, providers, `/passport`, `/console`, `/ops` bundles, i18n (en/fr), size budgets, Playwright + axe | 1–4 (API contract) | Not written |
-| 6 | `…-06-demo-and-operations.md` | Docker Compose with Keycloak + Mailpit, real `AuthlibOidcProvider` verification against Keycloak, seed data, Prometheus metrics and custom counters, Locust profile | 1–5 | Not written |
+| 4B | `…-04b-projects-and-retention.md` | Closing projects, first-shot transition rules and derived `engaged`, concentration rollups and alerts, governance overview, retention enforcement and anonymization | 4A | Implemented on `feat/governance-4b` (hackathon mode: no plan document, no new tests) |
+| 5 | `…-05-frontend.md` | Vite/React app: generated API client, providers, `/passport`, `/console`, `/ops` bundles, i18n (en/fr), size budgets, Playwright + axe | 1–4 (API contract) | Implemented on `feat/frontend` (hackathon mode: no plan document, no Playwright/axe) |
+| 6 | `…-06-demo-and-operations.md` | Docker Compose with Keycloak + Mailpit, real `AuthlibOidcProvider` verification against Keycloak, seed data, Prometheus metrics and custom counters, Locust profile | 1–5 | Demo pieces on `feat/demo` (Compose with Mailpit and nginx, seed data, dev-only sign endpoint); Keycloak, metrics and Locust not done |
 
 Pre-live gates (spec §10) — SCIM wired to the real IdP, real e-sign/payroll adapters, penetration test, legal sign-offs — are outside these plans.
 
@@ -31,37 +31,32 @@ Each item below must become a named task with a test in the plan listed.
 | any | Async tests: never write `session.expire_all()` + `session.get()` (raises MissingGreenlet) — use `await session.refresh(obj)`. |
 | any | FastAPI is pinned to 0.115.0 because `get_session` relies on yield-dependency teardown running before the response is sent; re-verify before upgrading. |
 | 6 | Outbox handler retry budget (~30 s over 5 tries) is too short for SMTP outages; lengthen for mail handlers and add a dead-letter consumer with alerting. |
-| 5 | Type `locale` response fields as the `Locale` enum (`MeResponse`, `AccountContact`, `WorkerSelf`) for the generated client. |
 | any | Visibility guard compares Python field names only: aliases (`Field(alias="worker_id")`), untyped `dict` bodies and unresolved forward references are not detected. |
 | 6 | Fake e-sign never signs by itself; for the demo add auto-sign after a delay (or a dev-only sign endpoint) so the loop runs without a provider. |
-| 4B | Close a project (`status=closed`); no endpoint yet, so every project stays active. |
-| 4B | Closing a project must end its open `project_staff` rows. Staff rows on a closed project otherwise keep granting worker visibility. |
 | any | Finance has `engagement:read_billing` but no billing read endpoint yet. |
 | any | `sync_worker_status` counts active engagements and then writes the worker row without a lock. A concurrent cancel and activate can leave the worker dormant even though it has an active engagement. |
-| 5 | Keyset pagination for `GET /projects` and `GET /workers/{id}/engagements` (spec §7.2); no endpoint paginates yet. |
-| 4B | An anonymized worker stays DETAIL-visible to PMs through past engagements; decide what a PM may still see at anonymization. |
+| any | Keyset pagination for `GET /projects` and `GET /workers/{id}/engagements` (spec §7.2); no endpoint paginates yet. |
 | pre-live (real adapters) | Adapter call timeouts; the engagement row lock is held across the external e-sign/payroll call. |
-| 4B | `send_contract` retries into dead-letter when the worker account is gone; cancel the engagement instead. |
 | any | Reactivation replay ignores body differences (same key, different terms returns the original); consider 422 on mismatch. |
 | any | Payroll-signal recovery measures its grace period from `billable_start_at`, not from activation. An engagement signed early is activated by the hourly job up to ~1 h after midnight UTC, so the next 15-min run can find the original signal still in the outbox and emit `PayrollSignalRequested` again — harmless, since that event is handled only by the payroll signal handler, not by `EngagementActivated`'s mail handlers — but it writes a spurious `engagement.payroll_signal_retried` audit row and warning. Key recovery off the activation time. |
-| 4B | Concentration and retention policy kinds have no rules schema yet; proposing one answers 400 `policy_kind_not_supported`. |
 | any | `recalculate_all` re-evaluates every worker in one transaction; batch it if the pool grows well past the pilot's 5,000 profiles. The run also holds a `FOR NO KEY UPDATE` lock on every pool worker until it commits, so a tiering activation during working hours delays worker profile edits, status changes and feedback recalculations for the length of the run; batch commits per group of workers (recalculate is idempotent). |
 | any | Skill verification never reverses. Raising the policy threshold does not un-verify skills already verified. |
 | any | Skill verification and tier recalculation each take locks in a fixed order, and future code that touches them must keep it: workers are locked `FOR NO KEY UPDATE`, in id order; skill claims are locked `FOR UPDATE`, sorted by skill id. |
 | any | The nightly roster rebuild commits in batches of 100 workers, so a rebuild that fails midway leaves earlier batches refreshed. That is harmless; the next run repairs the rest. |
-| 4B | First-shot review outcomes have no transition rules. For example, `engaged` → `passed` → `shortlisted` is allowed, and moving a worker out of `engaged` makes them eligible for the panel again. The audit row records the previous outcome. Decide the rules alongside deriving `engaged` from real engagements, before `first_shot_engaged` rollups; closed projects' panels must also be skipped. |
-| 4B | Candidates can be searched for a closed project, because nothing checks the project's status. |
 | any | Candidate scoring and first-shot selection score the whole eligible pool in Python per request. That is fine at the pilot's 5,000 profiles. Push scoring into SQL, or cache ranked pools per project, if the pool grows well beyond that. |
-| 5 | The SPA renders the first-shot panel in the same page layout as candidates, and no toggle can hide it (spec §7.8 `useFirstShot`). |
-| 4B | A first-shot `engaged` outcome is recorded by the PM; it is not derived from an actual engagement on the project. Consider setting it automatically when the PM engages that worker on the project. |
-| 4B | Concentration rollups (`first_shot_shown`, `first_shot_engaged`) read `first_shot_reviews`. |
 | any | The lock-order row gains roster refreshes. They are serialized per worker with a transaction-level advisory lock (`pg_advisory_xact_lock`), taken before any other lock in the refresh. |
 | any | The candidate cursor has no `policy_version`, so a matching-policy activation mid-walk can skip or repeat candidates. Add the version and reject a mismatch. |
 | any | PM visibility calls `list_staffed_by` once per source; share the lookup. |
-| 4B | PMs with detail visibility cannot yet see a worker's dispute status (spec §7.1 lists "disputes status" at the detail level); only People Ops and the worker read disputes. |
-| 4B | Retention must anonymize `disputes.reason` and `resolution_notes` six years after resolution (spec §6.6). |
 | any | The lock-order row gains feedback: the dispute-outcome handler locks the feedback row (`FOR UPDATE`) before its worker (`FOR NO KEY UPDATE`). |
 | any | An override holds while the rules' verdict equals the `evaluated_tier` recorded with it. If the verdict rises to the overridden tier and later falls back, recalculation never records the first move, so the override silently holds again; People Ops can re-override. Record or clear the override when the verdict reaches the current tier if this matters. |
+| any | Plan 4B shipped without new tests (hackathon deadline). Add tests for: closing projects (open-engagement refusal, staffing ended, closed-project guards), first-shot rules (`engaged` only from a real engagement, final), concentration rollup and alert, the overview's access rule (People Ops, admin, flagged PMs), anonymization across modules, retention cutoffs, and PM visibility of anonymized workers. |
+| 6 | Audit-log retention (7 years) is not enforced: the append-only trigger only lets the `bonarda_retention` database role delete, and that role is provisioned at deploy time. `run_retention` scrubs text and anonymizes workers but skips audit rows. |
+| any | A concentration alert emails People Ops once per day per scope. If the mail handler dead-letters (for example, an SMTP outage longer than the ~30 s retry budget), that day's email is lost; the dashboard still shows the alert. See the mail retry-budget row. |
+| any | Retention anonymizes dormant workers by `dormant_since`; a worker who never went through the dormant transition (for example, seed data) has none and is never picked up. |
+| any | Plan 5 shipped without Playwright + axe tests (hackathon deadline). Add end-to-end runs of the three bundles in en and fr, with an axe check on each page. |
+| any | Nothing stops a JSX string literal from bypassing i18n; add a lint rule (for example `i18next/no-literal-string`) for `src/pages`. |
+| any | `npm run check:api` (regenerate `openapi.json` and the types, then fail on a diff) is not wired into CI yet. |
+| any | Regional concentration counts a worker as "repeat" using their organisation-wide engagement count in the window, not their count in that region. |
 
 ## Implementation deviations from the spec (recorded as they happen)
 
@@ -102,3 +97,14 @@ Each item below must become a named task with a test in the plan listed.
 | 4A | Access grants are revoked with `POST /access-grants/{id}/revoke` and a required reason, replacing `DELETE` | The reason must be recorded (FR-9.5, spec §8.1); DELETE bodies are unreliable through proxies |
 | 4A | `FeedbackRead` and `StandingChangeRead` carry `id` | A worker needs the id to name the record they dispute |
 | 4A | Dispute record ownership comes from lookups injected by `app/wiring.py` | governance imports no domain module |
+| 4B | Projects close with `POST /projects/{id}/close`, refused while an engagement on the project is open; closing ends its staffing | Plain-REST convention; staffed PMs must finish or cancel work first, since closing removes their access to it |
+| 4B | A first-shot `engaged` outcome is recorded only when the PM actually engages the worker on that project (handler on `EngagementCreated`), and is final; PMs submit shortlisted, contacted or passed, and a passed worker can be reconsidered | Rollups must count real engagements, not claims |
+| 4B | PMs see nothing of an anonymized or offboarded worker, even through a grant or a past engagement; People Ops keep detail for the structural history | Spec §6.3 leaves only structural history after erasure |
+| 4B | Anonymization is event-driven: passport scrubs the profile and consents and emits `WorkerAnonymized`; identity deletes the account, engagements removes feedback text, governance replaces dispute text, roster refreshes | Each module scrubs its own data; governance and identity subscribe by event name, so no new module imports |
+| 4B | Erasure is refused for a worker on an active engagement (`worker_active`) | Their contract and payroll still need the identity |
+| 4B | Concentration rollups also store the tier distribution; the overview reads it from the latest nightly rollup | governance imports no domain module; the composition-root job gathers the numbers |
+| 4B | `GET /workers/{worker_id}/disputes` returns dispute status only (no reason or notes) to detail viewers | Spec §7.1 gives detail viewers "disputes status"; the text is for the worker and People Ops |
+| 4B | Concentration and retention policies are seeded as v1 by migration 0014 | Same mechanism as tiering and matching; both need sign-off before live data (spec §12) |
+| 5 | The API client is `fetch` plus TanStack Query, typed with `openapi-typescript` aliases (`src/api-schema.d.ts`), not a generated client | Types catch contract drift with no runtime code added to the bundles |
+| 5 | Size budgets are gzip totals per lazy page including the shared chunk: `/passport` 150 KB, `/console` (project page) and `/ops` 250 KB each | Measures what a user actually downloads to open the page |
+| 5 | Language falls back from the account locale to a saved choice, then the browser; switching while signed in saves it with `PATCH /me` | The account locale also drives emails (NFR-8.2) |

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.mail import Mailer
 from app.core.outbox.registry import HandlerRegistry
 from app.modules.engagements.contracts import send_contract, sync_worker_status
+from app.modules.engagements.feedback import scrub_feedback_text
 from app.modules.engagements.notifications import notify_engagement_confirmed, notify_feedback_due
 from app.modules.engagements.payroll import signal_payroll
 from app.modules.engagements.projects import end_staffing_for
@@ -55,3 +56,9 @@ def register(
 
     registry.register(EngagementActivated, "engagements.notify_worker", confirm)
     registry.register(EngagementCompleted, "engagements.notify_feedback_due", feedback_due)
+
+    async def scrub_text(session: AsyncSession, payload: dict[str, Any]) -> None:
+        await scrub_feedback_text(session, worker_id=UUID(payload["aggregate_id"]))
+
+    # By event type: engagements does not import passport's schemas for this.
+    registry.register("passport.worker_anonymized", "engagements.scrub_feedback_text", scrub_text)

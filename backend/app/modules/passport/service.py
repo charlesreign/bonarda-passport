@@ -10,6 +10,12 @@ from app.modules.passport.enums import (
     WorkerStatus,
     WorkerType,
 )
+from app.modules.passport.erasure import (
+    anonymize_worker,
+    is_surfaced,
+    retention_due,
+    tier_distribution,
+)
 from app.modules.passport.queries import (
     all_worker_ids,
     claimed_skill_ids,
@@ -30,6 +36,10 @@ from app.modules.passport.queries import (
 )
 
 __all__ = [
+    "anonymize_worker",
+    "is_surfaced",
+    "retention_due",
+    "tier_distribution",
     "AvailabilityStatus",
     "ConsentPurpose",
     "OnboardingState",

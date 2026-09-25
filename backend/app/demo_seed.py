@@ -39,6 +39,7 @@ from app.modules.passport.enums import (
 from app.modules.passport.models import Consent, Skill, SkillClaim, Worker
 from app.modules.roster.service import rebuild_all
 from app.modules.standing.service import recalculate_all_standing
+from app.nightly import run_concentration_rollup
 
 log = structlog.get_logger(__name__)
 
@@ -95,20 +96,6 @@ class DemoWorker:
 
 
 WORKERS = [
-    DemoWorker(
-        "Charlie",
-        "Charles Gold",
-        "GH",
-        "Accra",
-        ["en", "tw"],
-        {"software-engineering": True, "devsecops": True, "python": True},
-        history=[
-            Past(2, "efua", skills=["software-engineering", "python"]),
-            Past(5, "luc", skills=["software-engineering", "devsecops"]),
-            Past(8, "efua"),
-            Past(11, "luc"),
-        ],
-    ),
     DemoWorker(
         "kofi",
         "Kofi Mensah",
@@ -504,6 +491,8 @@ async def seed(session: AsyncSession) -> bool:
     await recalculate_all_standing(session)
     await session.commit()
     await rebuild_all(session)
+    await run_concentration_rollup(session)
+    await session.commit()
     return True
 
 

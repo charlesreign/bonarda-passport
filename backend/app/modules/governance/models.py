@@ -1,13 +1,17 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
+    Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
+    String,
     Text,
     UniqueConstraint,
     text,
@@ -25,6 +29,9 @@ from app.modules.governance.enums import (
     PolicyKind,
     PolicyStatus,
 )
+
+# Replaces personal free text on erasure or at the retention cutoff (spec §6.3).
+REMOVED_TEXT = "[removed]"
 
 
 class PolicyConfig(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -109,4 +116,31 @@ class Dispute(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "(status = 'resolved') = (resolution IS NOT NULL AND resolved_at IS NOT NULL)",
             name="resolved_consistent",
         ),
+    )
+
+
+class ConcentrationRollup(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Nightly concentration snapshot per scope ("ORG" or a data region), spec
+    §6.1 / NFR-5.3. One row per (period_end, scope); a same-day re-run updates it."""
+
+    __tablename__ = "concentration_rollups"
+
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    period_end: Mapped[date] = mapped_column(Date, nullable=False)
+    scope: Mapped[str] = mapped_column(String(8), nullable=False)
+    engagements_total: Mapped[int] = mapped_column(Integer, nullable=False)
+    engagements_repeat: Mapped[int] = mapped_column(Integer, nullable=False)
+    share: Mapped[float] = mapped_column(Float, nullable=False)
+    first_shot_shown: Mapped[int] = mapped_column(Integer, nullable=False)
+    first_shot_engaged: Mapped[int] = mapped_column(Integer, nullable=False)
+    tier_counts: Mapped[dict[str, int]] = mapped_column(JSONB, nullable=False)
+    alerted: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
+    )
+    policy_version_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("policy_configs.id", ondelete="RESTRICT"), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("period_end", "scope", name="uq_concentration_rollups_period_scope"),
     )

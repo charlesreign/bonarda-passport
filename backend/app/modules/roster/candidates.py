@@ -11,10 +11,10 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.context import Actor
-from app.core.errors import BadRequest, NotFound
+from app.core.errors import BadRequest, Conflict, NotFound
 from app.core.time import utcnow
 from app.modules.engagements.schemas import ProjectContext
-from app.modules.engagements.service import staffed_project
+from app.modules.engagements.service import ProjectStatus, staffed_project
 from app.modules.governance.service import active_matching
 from app.modules.roster.models import RosterProfile
 from app.modules.roster.repository import RosterRepository
@@ -81,6 +81,8 @@ async def visible_project(session: AsyncSession, actor: Actor, project_id: UUID)
     project = await staffed_project(session, actor.user_id, project_id)
     if project is None:
         raise NotFound("Project not found", code="project_not_found")
+    if project.status is ProjectStatus.CLOSED:
+        raise Conflict("This project is closed", code="project_closed")
     return project
 
 

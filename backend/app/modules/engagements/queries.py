@@ -1,5 +1,7 @@
 """Read functions other modules use through engagements.service."""
 
+from collections import Counter
+from collections.abc import Iterable
 from datetime import date, timedelta
 from uuid import UUID
 
@@ -7,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.engagements.enums import HISTORY_STATUSES, EngagementStatus
-from app.modules.engagements.models import Engagement, Feedback
+from app.modules.engagements.models import Engagement, Feedback, Project
 from app.modules.engagements.repository import ProjectRepository
 from app.modules.engagements.schemas import EngagementActivity, ProjectContext, StandingRecord
 
@@ -98,3 +100,39 @@ async def staffed_project_ids(session: AsyncSession, user_id: UUID) -> list[UUID
 
 async def engagement_feedback_id(session: AsyncSession, engagement_id: UUID) -> UUID | None:
     return await session.scalar(select(Feedback.id).where(Feedback.engagement_id == engagement_id))
+
+
+async def concentration_counts(
+    session: AsyncSession, since: date, until: date, repeat_min: int
+) -> dict[str, tuple[int, int]]:
+    """scope ("ORG" or region) -> (engagements, engagements going to workers
+    with at least `repeat_min` engagements in the window). Work that started
+    in the window and actually happened (signed or later) counts."""
+    rows = (
+        await session.execute(
+            select(Engagement.worker_id, Project.data_region)
+            .join(Project, Project.id == Engagement.project_id)
+            .where(
+                Engagement.status.in_(HISTORY_STATUSES),
+                Engagement.start_date >= since,
+                Engagement.start_date <= until,
+            )
+        )
+    ).all()
+    per_worker = Counter(worker_id for worker_id, _ in rows)
+    totals: dict[str, list[int]] = {}
+    for worker_id, region in rows:
+        for scope in ("ORG", region):
+            counts = totals.setdefault(scope, [0, 0])
+            counts[0] += 1
+            if per_worker[worker_id] >= repeat_min:
+                counts[1] += 1
+    return {scope: (total, repeat) for scope, (total, repeat) in totals.items()}
+
+
+async def project_regions(session: AsyncSession, project_ids: Iterable[UUID]) -> dict[UUID, str]:
+    ids = list(project_ids)
+    if not ids:
+        return {}
+    rows = await session.execute(select(Project.id, Project.data_region).where(Project.id.in_(ids)))
+    return {project_id: region for project_id, region in rows}

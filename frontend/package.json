@@ -6,19 +6,25 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "gen:api": "cd ../backend && python -m app.export_openapi ../frontend/openapi.json && cd ../frontend && openapi-typescript openapi.json -o src/api-schema.d.ts",
+    "check:api": "npm run gen:api && git diff --exit-code -- openapi.json src/api-schema.d.ts",
+    "size": "node scripts/check-size.mjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
     "@tanstack/react-query": "^5.59.0",
+    "i18next": "^26.4.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-i18next": "^17.0.15",
     "react-router-dom": "^6.27.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
+    "openapi-typescript": "^7.13.0",
     "typescript": "^5.6.3",
     "vite": "^5.4.10"
   }

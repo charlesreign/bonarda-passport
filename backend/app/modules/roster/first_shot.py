@@ -1,5 +1,6 @@
 import hashlib
 from collections.abc import Iterable
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -101,6 +102,9 @@ async def review(
             "This worker has not been shown on this project's first-shot panel",
             code="not_in_first_shot",
         )
+    if row.outcome is FirstShotOutcome.ENGAGED:
+        # Engaged comes from a real engagement on the project and is final.
+        raise Conflict("This worker is already engaged on this project", code="first_shot_decided")
     outcome = FirstShotOutcome(data.outcome)
     if outcome in DETAIL_OUTCOMES:
         eligible_ids = {
@@ -130,3 +134,31 @@ async def review(
         },
     )
     return row
+
+
+async def mark_first_shot_engaged(session: AsyncSession, project_id: UUID, worker_id: UUID) -> bool:
+    """Handler: engaging a worker the panel surfaced for this project records
+    `engaged` (FR-4.7), feeding the first_shot_engaged rollup. True if changed."""
+    row = await FirstShotRepository(session).get_for_update(project_id, worker_id)
+    if row is None or row.outcome is FirstShotOutcome.ENGAGED:
+        return False
+    before_outcome = row.outcome
+    row.outcome = FirstShotOutcome.ENGAGED
+    row.reason_code = None
+    await session.flush()
+    await write_audit(
+        session,
+        actor=None,
+        action="first_shot.engaged",
+        target_type="worker",
+        target_id=worker_id,
+        before={"outcome": before_outcome.value},
+        after={"project_id": str(project_id), "outcome": FirstShotOutcome.ENGAGED.value},
+    )
+    return True
+
+
+async def first_shot_outcomes(session: AsyncSession, since: datetime) -> list[tuple[UUID, str]]:
+    """(project_id, outcome) for every panel impression since `since`, for the
+    concentration rollup (first_shot_shown / first_shot_engaged)."""
+    return await FirstShotRepository(session).outcomes_since(since)

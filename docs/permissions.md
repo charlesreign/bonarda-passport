@@ -31,3 +31,4 @@ Do not edit by hand; from `backend/` run:
 | `governance:read` |  | ✓ |  |  | ✓ |
 | `audit:read` |  | ✓ |  |  | ✓ |
 | `skill:manage` |  | ✓ |  |  |  |
+| `worker:erase` |  | ✓ |  |  |  |

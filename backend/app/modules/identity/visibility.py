@@ -27,6 +27,8 @@ class Visibility(IntEnum):
 
 
 VisibilitySource = Callable[[AsyncSession, Actor, UUID], Awaitable[Visibility]]
+# Whether PMs may see this worker at all (False once anonymized/offboarded).
+SurfacedCheck = Callable[[AsyncSession, UUID], Awaitable[bool]]
 
 
 class VisibilityPolicy:
@@ -34,8 +36,11 @@ class VisibilityPolicy:
     Relationship rules owned by other modules (engaged on my project,
     shortlisted for my project) plug in as sources via app.wiring."""
 
-    def __init__(self, sources: Sequence[VisibilitySource] = ()) -> None:
+    def __init__(
+        self, sources: Sequence[VisibilitySource] = (), surfaced: SurfacedCheck | None = None
+    ) -> None:
         self._sources = tuple(sources)
+        self._surfaced = surfaced
 
     async def level(self, session: AsyncSession, actor: Actor, worker_id: UUID) -> Visibility:
         if actor.role is UserRole.WORKER:
@@ -43,6 +48,10 @@ class VisibilityPolicy:
         if actor.role in (UserRole.PEOPLE_OPS, UserRole.ADMIN):
             return Visibility.DETAIL
         if actor.role is not UserRole.PM:
+            return Visibility.NONE
+        # Spec §6.3: after erasure only structural history remains, for People
+        # Ops. No past relationship or grant keeps a PM's view of the person.
+        if self._surfaced is not None and not await self._surfaced(session, worker_id):
             return Visibility.NONE
         if await AccessGrantRepository(session).has_active(actor.user_id, worker_id, utcnow()):
             return Visibility.DETAIL

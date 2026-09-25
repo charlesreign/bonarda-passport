@@ -406,3 +406,25 @@ label.check input { width: 20px; height: 20px; min-height: 0; accent-color: var(
   .stat { padding: var(--space-2); }
   .stat dd { font-size: 1.2rem; }
 }
+
+/* ---------- Governance overview ---------- */
+.overview-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 860px) { .overview-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.text-bad { color: var(--color-destructive); }
+.share { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.sharebar { position: relative; width: 120px; height: 8px; background: var(--color-muted); border-radius: 4px; }
+.sharebar span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--color-highlight); }
+.sharebar span.over { background: var(--color-destructive); }
+.sharebar i { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--color-foreground); }
+.dist-row { display: grid; grid-template-columns: 130px minmax(0, 1fr) 90px; gap: var(--space-3); align-items: center; padding: var(--space-2) 0; }
+.distbar { height: 10px; background: var(--color-muted); border-radius: 5px; overflow: hidden; }
+.distbar span { display: block; height: 100%; }
+.dist-tier_2 { background: var(--tier-2-bg); }
+.dist-tier_1 { background: var(--color-highlight); }
+.dist-unrated { background: var(--color-border-strong); }
+
+/* ---------- Language switch ---------- */
+.lang-switch { display: inline-flex; padding: 2px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.lang { min-height: 36px; min-width: 40px; padding: 0 var(--space-2); background: transparent; color: var(--color-muted-foreground); border-color: transparent; font-size: 0.8rem; }
+.lang:hover:not(:disabled) { background: var(--color-muted); color: var(--color-foreground); border-color: transparent; }
+.lang[aria-pressed="true"] { background: var(--color-accent); color: var(--color-on-accent); }

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { api, refreshSession, setAccessToken, type Me } from "./api";
+import { setLanguage } from "./i18n";
 
 interface AuthState {
   me: Me | null;
@@ -17,7 +18,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // A returning visitor still has the refresh cookie: resume silently.
     refreshSession()
-      .then(async (ok) => (ok ? setMe(await api<Me>("/me")) : null))
+      .then(async (ok) => {
+        if (!ok) return;
+        const current = await api<Me>("/me");
+        setLanguage(current.locale);
+        setMe(current);
+      })
       .catch(() => null)
       .finally(() => setLoading(false));
   }, []);
@@ -25,6 +31,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(async (accessToken: string) => {
     setAccessToken(accessToken);
     const current = await api<Me>("/me");
+    setLanguage(current.locale);
     setMe(current);
     return current;
   }, []);

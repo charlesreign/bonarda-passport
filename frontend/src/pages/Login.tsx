@@ -1,45 +1,26 @@
 import { ArrowsClockwise, EnvelopeSimple, Scales, UsersThree } from "@phosphor-icons/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { api, type Role } from "../api";
+import { api, type DemoAccount, type Role } from "../api";
 import { homeFor, useAuth } from "../auth";
 import { Avatar, Card, ErrorNote, InfoNote, Loading, SuccessNote } from "../ui";
 
-interface DemoAccount {
-  id: string;
-  email: string;
-  role: Role;
-  name: string;
-}
-
-const ROLE_ORDER: [Role, string][] = [
-  ["pm", "Project managers"],
-  ["people_ops", "People Ops"],
-  ["worker", "Freelancers"],
-  ["admin", "Admin"],
-  ["finance", "Finance"],
-];
+const ROLE_ORDER: Role[] = ["pm", "people_ops", "worker", "admin", "finance"];
 
 const PILLARS = [
-  {
-    icon: ArrowsClockwise,
-    title: "Reactivate in minutes",
-    text: "Terms prefill from the last engagement. One confirmation sends the contract.",
-  },
-  {
-    icon: UsersThree,
-    title: "A fair first shot",
-    text: "Every staffing page shows qualified people who have had little recent work.",
-  },
-  {
-    icon: Scales,
-    title: "Standing you can explain",
-    text: "Tiers come from versioned rules. Freelancers see why, and can dispute any record.",
-  },
-];
+  { icon: ArrowsClockwise, key: "reactivate" },
+  { icon: UsersThree, key: "firstShot" },
+  { icon: Scales, key: "standing" },
+] as const;
+
+function displayName(account: DemoAccount): string {
+  return account.name.includes("@") ? account.name.split("@")[0] : account.name;
+}
 
 export default function Login() {
+  const { t } = useTranslation();
   const { signIn } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -75,19 +56,16 @@ export default function Login() {
       <section className="hero">
         <div>
           <p className="eyebrow">Bonarda Works</p>
-          <h1>One passport for every engagement.</h1>
-          <p className="lead">
-            Freelancers keep one record across projects. Project managers bring back people they
-            trust, and meet qualified people they have not worked with yet.
-          </p>
+          <h1>{t("login.title")}</h1>
+          <p className="lead">{t("login.lead")}</p>
         </div>
         <ul className="pillars">
-          {PILLARS.map(({ icon: Icon, title, text }) => (
-            <li key={title}>
+          {PILLARS.map(({ icon: Icon, key }) => (
+            <li key={key}>
               <Icon size={24} weight="duotone" aria-hidden="true" />
               <div>
-                <strong>{title}</strong>
-                <span>{text}</span>
+                <strong>{t(`login.pillars.${key}.title`)}</strong>
+                <span>{t(`login.pillars.${key}.text`)}</span>
               </div>
             </li>
           ))}
@@ -96,13 +74,13 @@ export default function Login() {
 
       <div className="login-grid">
         <Card
-          title="Freelancer sign-in"
-          subtitle="No password: we email you a single-use link."
+          title={t("login.freelancer.title")}
+          subtitle={t("login.freelancer.subtitle")}
           icon={<EnvelopeSimple size={20} aria-hidden="true" />}
         >
           <form onSubmit={submit} className="stack">
             <label className="field" htmlFor="email">
-              Email address
+              {t("login.freelancer.email")}
               <input
                 id="email"
                 type="email"
@@ -114,33 +92,30 @@ export default function Login() {
               />
             </label>
             <button disabled={magicLink.isPending}>
-              {magicLink.isPending ? "Sending…" : "Email me a sign-in link"}
+              {magicLink.isPending ? t("login.freelancer.sending") : t("login.freelancer.send")}
             </button>
             {magicLink.isSuccess && (
               <SuccessNote>
-                If that address has a passport, a link is on its way. In the demo, open{" "}
-                <a href="http://localhost:8025" target="_blank" rel="noreferrer">
-                  Mailpit
-                </a>
-                .
+                <Trans
+                  i18nKey="login.freelancer.sent"
+                  components={{ mailpit: <a href="http://localhost:8025" target="_blank" rel="noreferrer" /> }}
+                />
               </SuccessNote>
             )}
             <ErrorNote error={magicLink.error} />
           </form>
         </Card>
 
-        <Card title="Demo accounts" subtitle="Sign in as anyone in the seeded dataset.">
+        <Card title={t("login.demo.title")} subtitle={t("login.demo.subtitle")}>
           {accounts.isLoading && <Loading />}
-          {accounts.isError && (
-            <InfoNote>Demo sign-in is off. Staff sign in through the company identity provider.</InfoNote>
-          )}
+          {accounts.isError && <InfoNote>{t("login.demo.off")}</InfoNote>}
           {accounts.data &&
-            ROLE_ORDER.map(([role, label]) => {
+            ROLE_ORDER.map((role) => {
               const group = accounts.data.filter((a) => a.role === role);
               if (group.length === 0) return null;
               return (
                 <div key={role} className="demo-group">
-                  <h3>{label}</h3>
+                  <h3>{t(`login.demo.groups.${role}`)}</h3>
                   <div className="account-grid">
                     {group.map((a) => (
                       <button
@@ -148,10 +123,10 @@ export default function Login() {
                         className="account-chip"
                         onClick={() => demoLogin.mutate(a.id)}
                         disabled={demoLogin.isPending}
-                        aria-label={`Sign in as ${a.name} (${label})`}
+                        aria-label={t("login.demo.signInAs", { name: displayName(a), role: t(`roles.${role}`) })}
                       >
-                        <Avatar name={a.name.includes("@") ? a.name.split("@")[0] : a.name} />
-                        {a.name.includes("@") ? a.name.split("@")[0] : a.name}
+                        <Avatar name={displayName(a)} />
+                        {displayName(a)}
                       </button>
                     ))}
                   </div>

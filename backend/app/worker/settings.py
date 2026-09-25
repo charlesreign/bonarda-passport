@@ -18,12 +18,14 @@ from app.wiring import HandlerDeps, build_registry
 from app.worker.jobs import (
     MAX_HANDLER_TRIES,
     activate_due_engagements,
+    concentration_rollup,
     expire_access_grants,
     flag_stuck_engagements,
     purge_outbox,
     rebuild_roster,
     recalculate_standing,
     remind_dispute_sla,
+    retention_enforcement,
     run_event_handler,
 )
 
@@ -101,6 +103,8 @@ class WorkerSettings:
         cron(flag_stuck_engagements, minute=set(range(0, 60, 15))),
         cron(recalculate_standing, hour={3}, minute={0}),
         cron(rebuild_roster, hour={2}, minute={0}),
+        cron(concentration_rollup, hour={2}, minute={10}),
+        cron(retention_enforcement, hour={2}, minute={20}),
         cron(remind_dispute_sla, hour={8}, minute={0}),
     ]
     on_startup = startup
