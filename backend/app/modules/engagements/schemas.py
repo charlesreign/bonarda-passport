@@ -7,7 +7,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.core.outbox.events import DomainEvent
 from app.modules.engagements.enums import (
+    DECLINE_CAUSES,
     CancelCause,
+    DeclineReason,
     EngagementPath,
     EngagementStatus,
     ProjectStatus,
@@ -73,6 +75,13 @@ class FeedbackRead(BaseModel):
     created_at: datetime
 
 
+class DeclineRead(BaseModel):
+    cause: CancelCause
+    declined_at: datetime
+    reason: DeclineReason | None
+    note: str | None
+
+
 class EngagementRead(BaseModel):
     id: UUID
     worker_id: UUID
@@ -94,6 +103,7 @@ class EngagementRead(BaseModel):
     completed_at: datetime | None
     stuck: bool
     feedback: FeedbackRead | None
+    decline: DeclineRead | None = None
 
 
 class EngagementCreate(BaseModel):
@@ -184,6 +194,27 @@ class EngagementDeclined(DomainEvent):
     cause: CancelCause
 
 
+class ContractVoidRequested(DomainEvent):
+    """A declined offer's envelope must be withdrawn at the provider."""
+
+    event_type: ClassVar[str] = "engagements.contract_void_requested"
+    envelope_id: str
+
+
+class DeclineRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: DeclineReason
+    note: str | None = Field(default=None, max_length=500)
+
+    @field_validator("note")
+    @classmethod
+    def _blank_is_none(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+
 class PayrollSignalRequested(DomainEvent):
     """Emitted only by the payroll-signal retry job (never by activation), so
     a retry never re-triggers the worker/PM mail handlers that listen on
@@ -267,7 +298,23 @@ class ProjectContext(BaseModel):
     status: ProjectStatus
 
 
-def engagement_read(engagement: Engagement, feedback: Feedback | None) -> EngagementRead:
+def engagement_read(
+    engagement: Engagement, feedback: Feedback | None, *, show_decline: bool = False
+) -> EngagementRead:
+    """`show_decline` is the caller's decision under `decline_visible_to`;
+    it only adds detail to an engagement that was declined."""
+    decline = None
+    if (
+        show_decline
+        and engagement.cancel_cause in DECLINE_CAUSES
+        and engagement.declined_at is not None
+    ):
+        decline = DeclineRead(
+            cause=engagement.cancel_cause,
+            declined_at=engagement.declined_at,
+            reason=engagement.decline_reason,
+            note=engagement.decline_note,
+        )
     return EngagementRead(
         id=engagement.id,
         worker_id=engagement.worker_id,
@@ -291,4 +338,5 @@ def engagement_read(engagement: Engagement, feedback: Feedback | None) -> Engage
         and engagement.status
         in (EngagementStatus.PENDING_SIGNATURE, EngagementStatus.AWAITING_SIGNATURE),
         feedback=FeedbackRead.model_validate(feedback) if feedback is not None else None,
+        decline=decline,
     )

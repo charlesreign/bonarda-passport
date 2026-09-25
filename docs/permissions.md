@@ -22,6 +22,7 @@ Do not edit by hand; from `backend/` run:
 | `engagement:create` | ✓ |  |  |  |  |
 | `engagement:reactivate` | ✓ |  |  |  |  |
 | `engagement:read_billing` |  |  | ✓ |  |  |
+| `engagement:decline_own` |  |  |  | ✓ |  |
 | `feedback:submit` | ✓ |  |  |  |  |
 | `first_shot:review` | ✓ |  |  |  |  |
 | `access_grant:manage` |  | ✓ |  |  |  |
