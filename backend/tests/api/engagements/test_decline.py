@@ -1,17 +1,19 @@
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
 from typing import Any
+from uuid import UUID
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.audit.models import AuditLog
 from app.core.config import Settings
 from app.core.enums import UserRole
 from app.core.outbox.models import OutboxEvent
 from app.core.time import utcnow
+from app.modules.engagements.contracts import void_contract
 from app.modules.engagements.enums import CancelCause, EngagementStatus
 from app.modules.engagements.models import Engagement
 from app.modules.engagements.queries import standing_records
@@ -260,3 +262,32 @@ async def test_a_decline_counts_toward_neither_standing_nor_the_roster(
     assert profile is not None
     await session.refresh(profile)
     assert profile.engagements_total == 1
+
+
+async def test_the_worker_process_voids_a_declined_envelope_once(
+    client: AsyncClient,
+    session: AsyncSession,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    drain: Drain,
+    esign: FakeEsignAdapter,
+) -> None:
+    offer, _, account, _ = await _offer(client, session, settings)
+    await drain()
+    envelope = (await _row(session, offer["id"])).esign_envelope_id or ""
+    await client.post(
+        _decline_url(offer["id"]), json={"reason": "rate"}, headers=bearer(settings, account)
+    )
+
+    await drain()
+    async with sessionmaker() as s, s.begin():  # a redelivered event
+        await void_contract(s, esign, UUID(offer["id"]), envelope)
+
+    assert esign.voided == {envelope}
+    assert (await _row(session, offer["id"])).void_requested_at is not None
+    voided = (
+        await session.scalars(
+            select(AuditLog).where(AuditLog.action == "engagement.contract_voided")
+        )
+    ).all()
+    assert len(voided) == 1

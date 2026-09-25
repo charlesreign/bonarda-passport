@@ -191,3 +191,23 @@ class ContractService:
         )
         await emit_event(self.session, ContractDispatchRequested(aggregate_id=engagement.id))
         return engagement
+
+
+async def void_contract(
+    session: AsyncSession, esign: EsignAdapter, engagement_id: UUID, envelope_id: str
+) -> None:
+    """Outbox handler: withdraws a declined offer's envelope. A failure
+    retries through the outbox, so a provider outage never blocks a decline."""
+    engagement = await EngagementRepository(session).get_for_update(engagement_id)
+    if engagement is None or engagement.void_requested_at is not None:
+        return
+    await esign.void(envelope_id)
+    engagement.void_requested_at = utcnow()
+    await write_audit(
+        session,
+        actor=None,
+        action="engagement.contract_voided",
+        target_type="engagement",
+        target_id=engagement.id,
+        after={"envelope_id": envelope_id},
+    )
