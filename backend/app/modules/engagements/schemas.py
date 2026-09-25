@@ -6,7 +6,13 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.outbox.events import DomainEvent
-from app.modules.engagements.enums import EngagementPath, EngagementStatus, ProjectStatus, WorkMode
+from app.modules.engagements.enums import (
+    CancelCause,
+    EngagementPath,
+    EngagementStatus,
+    ProjectStatus,
+    WorkMode,
+)
 from app.modules.engagements.models import Engagement, Feedback
 
 
@@ -165,6 +171,17 @@ class EngagementCancelled(DomainEvent):
     event_type: ClassVar[str] = "engagements.engagement_cancelled"
     worker_id: UUID
     project_id: UUID
+    cause: CancelCause
+
+
+class EngagementDeclined(DomainEvent):
+    """The worker said no, in the app or at the e-sign provider. Drives the PM
+    mail only: nothing scores a decline (offer-decline spec §1)."""
+
+    event_type: ClassVar[str] = "engagements.engagement_declined"
+    worker_id: UUID
+    project_id: UUID
+    cause: CancelCause
 
 
 class PayrollSignalRequested(DomainEvent):

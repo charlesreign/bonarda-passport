@@ -9,15 +9,15 @@ from app.core.context import Actor
 from app.core.errors import Conflict, NotFound
 from app.core.outbox.writer import emit_event
 from app.core.time import utcnow
+from app.modules.engagements.cancellation import cancel
 from app.modules.engagements.engagements import EngagementService
-from app.modules.engagements.enums import CancelCause, EngagementStatus
+from app.modules.engagements.enums import DECLINE_CAUSES, CancelCause, EngagementStatus
 from app.modules.engagements.models import Engagement
 from app.modules.engagements.repository import EngagementRepository, ProjectRepository
 from app.modules.engagements.schemas import (
     ContractDispatchRequested,
     ContractSigned,
     EngagementActivated,
-    EngagementCancelled,
     EsignWebhook,
 )
 from app.modules.identity.service import worker_contact
@@ -41,24 +41,13 @@ async def send_contract(session: AsyncSession, esign: EsignAdapter, engagement_i
     if contact is None:
         # The worker's account is gone (erased or anonymized): nobody can sign,
         # so cancel rather than retry into the dead-letter list.
-        engagement.status = EngagementStatus.CANCELLED
-        engagement.cancel_cause = CancelCause.WORKER_ACCOUNT_MISSING
-        engagement.stuck_flagged_at = None
-        await write_audit(
+        await cancel(
             session,
+            engagement,
+            CancelCause.WORKER_ACCOUNT_MISSING,
             actor=None,
             action="engagement.cancelled",
-            target_type="engagement",
-            target_id=engagement.id,
             reason="worker_account_missing",
-        )
-        await emit_event(
-            session,
-            EngagementCancelled(
-                aggregate_id=engagement.id,
-                worker_id=engagement.worker_id,
-                project_id=engagement.project_id,
-            ),
         )
         return
     if project is None or name is None:
@@ -149,7 +138,18 @@ class ContractService:
 
     async def _signed(self, engagement: Engagement) -> None:
         if engagement.status is not EngagementStatus.AWAITING_SIGNATURE:
-            return  # replayed or out-of-order: nothing to do
+            if engagement.cancel_cause in DECLINE_CAUSES:
+                # The worker declined, yet the provider reports a signature: the
+                # decline stands, but People Ops should see the stray envelope.
+                log.warning("engagements.signed_after_decline", engagement_id=str(engagement.id))
+                await write_audit(
+                    self.session,
+                    actor=None,
+                    action="engagement.signed_after_decline",
+                    target_type="engagement",
+                    target_id=engagement.id,
+                )
+            return  # replayed or out-of-order: nothing else to do
         engagement.status = EngagementStatus.SIGNED
         engagement.signed_at = utcnow()
         engagement.stuck_flagged_at = None
@@ -167,24 +167,12 @@ class ContractService:
     async def _declined(self, engagement: Engagement) -> None:
         if engagement.status not in _SENDABLE:
             return
-        engagement.status = EngagementStatus.CANCELLED
-        engagement.cancel_cause = CancelCause.ESIGN_DECLINED
-        engagement.declined_at = utcnow()
-        engagement.stuck_flagged_at = None
-        await write_audit(
+        await cancel(
             self.session,
+            engagement,
+            CancelCause.ESIGN_DECLINED,
             actor=None,
             action="engagement.contract_declined",
-            target_type="engagement",
-            target_id=engagement.id,
-        )
-        await emit_event(
-            self.session,
-            EngagementCancelled(
-                aggregate_id=engagement.id,
-                worker_id=engagement.worker_id,
-                project_id=engagement.project_id,
-            ),
         )
 
     async def request_retry(self, actor: Actor, engagement_id: UUID) -> Engagement:

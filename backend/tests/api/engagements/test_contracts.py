@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.audit.models import AuditLog
 from app.core.config import Settings
 from app.core.enums import UserRole
+from app.core.outbox.models import OutboxEvent
 from app.core.time import utcnow
 from app.modules.engagements.contracts import activate_due
 from app.modules.engagements.enums import CancelCause, DeclineReason, EngagementStatus
@@ -392,3 +393,45 @@ async def test_payroll_is_not_signalled_before_activation(
         await signal_payroll(s, payroll, engagement.id)
 
     assert payroll.activations == {}
+
+
+async def test_esign_decline_records_the_cause_and_announces_it(
+    client: AsyncClient, session: AsyncSession, settings: Settings, drain: Drain
+) -> None:
+    created, _, _ = await _engage(client, session, settings)
+    await drain()
+    envelope = (await _engagement(session, created["id"])).esign_envelope_id or ""
+
+    assert await _sign(client, settings, envelope, event="declined") == 204
+
+    engagement = await _engagement(session, created["id"])
+    assert engagement.cancel_cause is CancelCause.ESIGN_DECLINED
+    assert engagement.declined_at is not None
+    assert engagement.decline_reason is None
+    events = {
+        row.event_type: row.payload
+        for row in (await session.scalars(select(OutboxEvent))).all()
+        if row.aggregate_id == engagement.id
+    }
+    assert events["engagements.engagement_cancelled"]["cause"] == "esign_declined"
+    assert events["engagements.engagement_declined"]["cause"] == "esign_declined"
+
+
+async def test_signed_after_a_decline_changes_nothing_but_is_audited(
+    client: AsyncClient, session: AsyncSession, settings: Settings, drain: Drain
+) -> None:
+    created, _, _ = await _engage(client, session, settings)
+    await drain()
+    envelope = (await _engagement(session, created["id"])).esign_envelope_id or ""
+    assert await _sign(client, settings, envelope, event="declined") == 204
+
+    assert await _sign(client, settings, envelope, event="signed") == 204
+
+    engagement = await _engagement(session, created["id"])
+    assert engagement.status is EngagementStatus.CANCELLED
+    assert engagement.signed_at is None
+    actions = (
+        await session.scalars(select(AuditLog.action).where(AuditLog.target_id == engagement.id))
+    ).all()
+    assert "engagement.signed_after_decline" in actions
+    assert "engagement.contract_signed" not in actions
