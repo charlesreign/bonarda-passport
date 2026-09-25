@@ -22,6 +22,7 @@ When a PM onboards a freelancer onto a project (first-time or reactivation engag
 - A PM withdrawing an offer (`pm_withdrew` cause).
 - An organisation-wide decline rollup on the governance overview.
 - An offer-expiry step (unanswered offers lapsing).
+- A retention cutoff for decline notes: only erasure clears them for now.
 
 ## 2. Current behaviour
 
@@ -33,23 +34,23 @@ New migration `0016_engagement_decline`, after `0015_concentration`. Nullable co
 
 | Column | Type | Meaning |
 |---|---|---|
-| `cancel_cause` | text | `worker_declined`, `esign_declined` or `worker_account_missing` |
+| `cancel_cause` | enum `cancelcause` | `worker_declined`, `esign_declined` or `worker_account_missing` |
 | `declined_at` | timestamptz | When the worker declined (either route) |
-| `decline_reason` | text | `rate`, `dates`, `scope`, `availability` or `other` |
+| `decline_reason` | enum `declinereason` | `rate`, `dates`, `scope`, `availability` or `other` |
 | `decline_note` | varchar(500) | Optional free text from the worker |
 | `void_requested_at` | timestamptz | When the e-sign envelope was voided after a decline |
 
-Value sets are enforced with CHECK constraints (text + CHECK, as `policy_configs` does), backed by `StrEnum`s in `engagements/enums.py` (`CancelCause`, `DeclineReason`). Constraints:
+`cancel_cause` and `decline_reason` are native Postgres enums (`pg_enum`, like every other status column), backed by `StrEnum`s in `engagements/enums.py` (`CancelCause`, `DeclineReason`). The row invariants are CHECK constraints:
 
 - `(status = 'cancelled') = (cancel_cause IS NOT NULL)`
-- `(cancel_cause IN ('worker_declined','esign_declined')) = (declined_at IS NOT NULL)`
+- `COALESCE(cancel_cause IN ('worker_declined','esign_declined'), false) = (declined_at IS NOT NULL)`
 - `decline_reason IS NULL OR cancel_cause = 'worker_declined'`
 - `decline_note IS NULL OR decline_reason IS NOT NULL`
-- `cancel_cause <> 'worker_declined' OR decline_reason IS NOT NULL`
+- `cancel_cause IS DISTINCT FROM 'worker_declined' OR decline_reason IS NOT NULL`
 
-**Backfill:** before adding the constraints, existing `cancelled` rows take their cause from the audit log — `engagement.contract_declined` → `esign_declined` with `declined_at` = the audit row's `created_at`; `engagement.cancelled` with `reason = worker_account_missing` → `worker_account_missing`. A cancelled row matching neither (none are expected) gets `worker_account_missing` and the migration logs its id. The downgrade drops the constraints and columns.
+**Backfill:** before adding the constraints, existing `cancelled` rows take their cause from the audit log — `engagement.contract_declined` → `esign_declined` with `declined_at` = the audit row's `occurred_at`; `engagement.cancelled` with `reason = worker_account_missing` → `worker_account_missing`. A cancelled row matching neither (none are expected) gets `worker_account_missing` and the migration logs its id. The downgrade drops the constraints and columns.
 
-Every path that sets `status = cancelled` also sets `cancel_cause`: `send_contract` (account missing), `ContractService._declined` (e-sign), and the new decline service.
+Every path that sets `status = cancelled` goes through one helper, `cancel()` in `engagements/cancellation.py`, which sets `cancel_cause` (and `declined_at` for a decline), writes the audit row and emits the events: `send_contract` (account missing), `ContractService._declined` (e-sign), and the new decline service.
 
 ## 4. Declining
 
@@ -62,7 +63,7 @@ Every path that sets `status = cancelled` also sets `cancel_cause`: `send_contra
 - The engagement must belong to the caller's worker profile; otherwise 404 `engagement_not_found` (no existence leak).
 - Response 200 `EngagementRead` (with the `decline` block, §5).
 
-### Service: `EngagementService.decline(actor, engagement_id, data)`
+### Service: `DeclineService.decline(actor, worker_id, engagement_id, data)` in `engagements/declines.py`
 
 Locks the row (`get_for_update`), then:
 
@@ -87,11 +88,11 @@ On decline, in one transaction: `status = cancelled`, `cancel_cause = worker_dec
 
 ### Races
 
-Both the decline and the e-sign webhook lock the engagement row, so the first to commit wins. Signed first → the decline gets 409. Declined first → the `signed` webhook finds `cancelled`, is ignored, and logs `engagements.signed_after_decline` with the engagement id (warning level) so an operator can void a stray signature. The demo sign route (`app/demo.py`) behaves the same way.
+Both the decline and the e-sign webhook lock the engagement row, so the first to commit wins. Signed first → the decline gets 409. Declined first → the `signed` webhook finds `cancelled`, changes nothing, and records an `engagement.signed_after_decline` audit row plus a warning log, so People Ops and operators can see a stray signature. The demo sign route (`app/demo.py`) behaves the same way.
 
 ### Erasure
 
-Anonymising a worker sets `decline_note = NULL` on their engagements, in the existing `engagements.scrub_feedback_text` handler for `passport.worker_anonymized`. Reason and cause are kept; they are not personal free text.
+Anonymising a worker sets `decline_note = NULL` on their engagements, in a new `engagements.scrub_decline_notes` handler for `passport.worker_anonymized` (audit `engagement.decline_note_removed`). Reason and cause are kept; they are not personal free text.
 
 ## 5. Visibility
 
