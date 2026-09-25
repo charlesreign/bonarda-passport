@@ -6,6 +6,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.audit.writer import write_audit
 from app.core.context import Actor
 from app.core.enums import UserRole
 from app.core.errors import Conflict, NotFound
@@ -83,3 +84,20 @@ async def staffed_project_ids(session: AsyncSession, actor: Actor) -> set[UUID]:
     if actor.role is not UserRole.PM:
         return set()
     return {p.id for p in await ProjectRepository(session).list_staffed_by(actor.user_id)}
+
+
+async def scrub_decline_notes(session: AsyncSession, *, worker_id: UUID) -> int:
+    """Erasure (spec §6.3): the note is personal free text; the reason and
+    cause are structural and stay. Returns how many notes were removed."""
+    engagements = await EngagementRepository(session).with_decline_note(worker_id)
+    for engagement in engagements:
+        engagement.decline_note = None
+        await write_audit(
+            session,
+            actor=None,
+            action="engagement.decline_note_removed",
+            target_type="engagement",
+            target_id=engagement.id,
+            reason="worker_anonymized",
+        )
+    return len(engagements)

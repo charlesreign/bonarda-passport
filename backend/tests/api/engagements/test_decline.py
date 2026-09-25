@@ -291,3 +291,32 @@ async def test_the_worker_process_voids_a_declined_envelope_once(
         )
     ).all()
     assert len(voided) == 1
+
+
+async def test_anonymizing_the_worker_removes_the_note_but_keeps_the_reason(
+    client: AsyncClient, session: AsyncSession, settings: Settings, drain: Drain
+) -> None:
+    offer, worker, account, _ = await _offer(client, session, settings)
+    await client.post(
+        _decline_url(offer["id"]),
+        json={"reason": "dates", "note": "My daughter is due that week"},
+        headers=bearer(settings, account),
+    )
+    people_ops = await make_user(session, role=UserRole.PEOPLE_OPS)
+
+    response = await client.post(
+        f"/api/v1/workers/{worker.id}/anonymize",
+        json={"reason": "Erasure request received by email"},
+        headers=bearer(settings, people_ops),
+    )
+    assert response.status_code == 204
+    await drain()
+
+    row = await _row(session, offer["id"])
+    assert (row.decline_note, row.decline_reason) == (None, "dates")
+    removed = (
+        await session.scalars(
+            select(AuditLog).where(AuditLog.action == "engagement.decline_note_removed")
+        )
+    ).all()
+    assert [a.target_id for a in removed] == [row.id]
