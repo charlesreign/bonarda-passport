@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
@@ -100,3 +101,28 @@ async def exclude_feedback(
         reason=reason,
     )
     return True
+
+
+async def scrub_feedback_text(
+    session: AsyncSession,
+    *,
+    worker_id: UUID | None = None,
+    completed_before: datetime | None = None,
+) -> int:
+    """Removes free-text feedback, keeping the structured answers (spec §6.3,
+    §6.6): for one worker on erasure, or for everything older than the
+    retention cutoff. Returns how many were scrubbed."""
+    scrubbed = await EngagementRepository(session).feedback_with_text(
+        worker_id=worker_id, completed_before=completed_before
+    )
+    for feedback in scrubbed:
+        feedback.free_text = None
+        await write_audit(
+            session,
+            actor=None,
+            action="feedback.text_removed",
+            target_type="engagement",
+            target_id=feedback.engagement_id,
+            reason="worker_anonymized" if worker_id is not None else "retention",
+        )
+    return len(scrubbed)

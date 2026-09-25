@@ -17,7 +17,7 @@ from app.core.outbox.writer import emit_event
 from app.core.pagination import decode_cursor, encode_cursor
 from app.core.time import utcnow
 from app.modules.governance.enums import DisputeStatus, DisputeTargetType
-from app.modules.governance.models import Dispute
+from app.modules.governance.models import REMOVED_TEXT, Dispute
 from app.modules.governance.repository import DisputeRepository
 from app.modules.governance.schemas import (
     DisputeCreate,
@@ -164,3 +164,27 @@ class DisputeService:
             ),
         )
         return dispute
+
+
+async def scrub_dispute_text(
+    session: AsyncSession, *, worker_id: UUID | None = None, resolved_before: datetime | None = None
+) -> int:
+    """Replaces dispute reasons and notes, keeping the structure (spec §6.3,
+    §6.6): for one worker on erasure, or for disputes resolved before the
+    retention cutoff. Returns how many were scrubbed."""
+    disputes = await DisputeRepository(session).with_text(
+        worker_id=worker_id, resolved_before=resolved_before
+    )
+    for dispute in disputes:
+        dispute.reason = REMOVED_TEXT
+        if dispute.resolution_notes is not None:
+            dispute.resolution_notes = REMOVED_TEXT
+        await write_audit(
+            session,
+            actor=None,
+            action="dispute.text_removed",
+            target_type="dispute",
+            target_id=dispute.id,
+            reason="worker_anonymized" if worker_id is not None else "retention",
+        )
+    return len(disputes)

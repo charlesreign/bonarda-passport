@@ -1,13 +1,13 @@
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit.models import AuditLog
-from app.modules.governance.enums import DisputeStatus, PolicyKind, PolicyStatus
-from app.modules.governance.models import Dispute, PolicyConfig
+from app.modules.governance.enums import DisputeResolution, DisputeStatus, PolicyKind, PolicyStatus
+from app.modules.governance.models import REMOVED_TEXT, ConcentrationRollup, Dispute, PolicyConfig
 
 
 class PolicyRepository:
@@ -133,6 +133,46 @@ class DisputeRepository:
         stmt = stmt.order_by(Dispute.due_at, Dispute.id).limit(limit)
         return list((await self.session.scalars(stmt)).all())
 
+    async def with_text(
+        self, *, worker_id: UUID | None, resolved_before: datetime | None
+    ) -> list[Dispute]:
+        stmt = select(Dispute).where(Dispute.reason != REMOVED_TEXT)
+        if worker_id is not None:
+            stmt = stmt.where(Dispute.worker_id == worker_id)
+        if resolved_before is not None:
+            stmt = stmt.where(
+                Dispute.status == DisputeStatus.RESOLVED, Dispute.resolved_at < resolved_before
+            )
+        return list((await self.session.scalars(stmt.with_for_update())).all())
+
+    async def counts(self, now: datetime, since: datetime) -> dict[str, int]:
+        open_ = Dispute.status == DisputeStatus.OPEN
+        resolved_recently = (Dispute.status == DisputeStatus.RESOLVED) & (
+            Dispute.resolved_at >= since
+        )
+        row = (
+            await self.session.execute(
+                select(
+                    func.count().filter(open_),
+                    func.count().filter(open_ & (Dispute.due_at < now)),
+                    func.count().filter(resolved_recently),
+                    func.count().filter(
+                        resolved_recently & (Dispute.resolution == DisputeResolution.UPHELD)
+                    ),
+                )
+            )
+        ).one()
+        return {"open": row[0], "overdue": row[1], "resolved_30d": row[2], "upheld_30d": row[3]}
+
+    async def status_for_worker(self, worker_id: UUID) -> list[Dispute]:
+        stmt = (
+            select(Dispute)
+            .where(Dispute.worker_id == worker_id)
+            .order_by(Dispute.created_at.desc())
+            .limit(50)
+        )
+        return list((await self.session.scalars(stmt)).all())
+
     async def open_due_before(self, cutoff: datetime) -> list[Dispute]:
         stmt = (
             select(Dispute)
@@ -140,3 +180,38 @@ class DisputeRepository:
             .order_by(Dispute.due_at, Dispute.id)
         )
         return list((await self.session.scalars(stmt)).all())
+
+
+class ConcentrationRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    def add(self, row: ConcentrationRollup) -> ConcentrationRollup:
+        self.session.add(row)
+        return row
+
+    async def get_for_update(self, period_end: date, scope: str) -> ConcentrationRollup | None:
+        return await self.session.scalar(
+            select(ConcentrationRollup)
+            .where(ConcentrationRollup.period_end == period_end, ConcentrationRollup.scope == scope)
+            .with_for_update()
+        )
+
+    async def latest(self) -> list[ConcentrationRollup]:
+        """The most recent run's rows, ORG first."""
+        last = await self.session.scalar(select(func.max(ConcentrationRollup.period_end)))
+        if last is None:
+            return []
+        rows = await self.session.scalars(
+            select(ConcentrationRollup).where(ConcentrationRollup.period_end == last)
+        )
+        return sorted(rows.all(), key=lambda r: (r.scope != "ORG", r.scope))
+
+    async def history(self, scope: str, limit: int) -> list[ConcentrationRollup]:
+        rows = await self.session.scalars(
+            select(ConcentrationRollup)
+            .where(ConcentrationRollup.scope == scope)
+            .order_by(ConcentrationRollup.period_end.desc())
+            .limit(limit)
+        )
+        return list(rows.all())

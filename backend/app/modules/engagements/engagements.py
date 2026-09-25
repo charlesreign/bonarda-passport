@@ -48,6 +48,8 @@ class EngagementService:
         project = await self.projects.get(project_id)
         if project is None or not await self.projects.is_staffed(project.id, actor.user_id):
             raise NotFound("Project not found", code="project_not_found")
+        if project.status is ProjectStatus.CLOSED:
+            raise Conflict("This project is closed", code="project_closed")
         return project
 
     async def managed(self, actor: Actor, engagement_id: UUID) -> Engagement:
@@ -70,8 +72,6 @@ class EngagementService:
         prefilled_from: UUID | None = None,
     ) -> Engagement:
         project = await self.staffed_project(actor, data.project_id)
-        if project.status is not ProjectStatus.ACTIVE:
-            raise Conflict("This project is closed", code="project_closed")
         readiness = await engagement_readiness(self.session, worker_id)
         if readiness is None:
             raise NotFound("Worker not found", code="worker_not_found")

@@ -35,6 +35,7 @@ class Permission(StrEnum):
     GOVERNANCE_READ = "governance:read"
     AUDIT_READ = "audit:read"
     SKILL_MANAGE = "skill:manage"
+    WORKER_ERASE = "worker:erase"  # spec §6.3 erasure / anonymization
 
 
 P = Permission
@@ -66,6 +67,7 @@ ROLE_PERMISSIONS: Mapping[UserRole, frozenset[Permission]] = MappingProxyType(
                 P.GOVERNANCE_READ,
                 P.AUDIT_READ,
                 P.SKILL_MANAGE,
+                P.WORKER_ERASE,
             }
         ),
         UserRole.FINANCE: frozenset({P.ENGAGEMENT_READ_BILLING}),

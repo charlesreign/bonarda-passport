@@ -70,7 +70,7 @@ async def test_propose_creates_the_next_draft_version(
     [
         ("tiering", {"window_months": 24}, 422, "invalid_policy_rules"),
         ("tiering", {**_tiering(), "surprise": 1}, 422, "invalid_policy_rules"),
-        ("concentration", {"threshold": 0.4}, 400, "policy_kind_not_supported"),
+        ("concentration", {"threshold": 0.4}, 422, "invalid_policy_rules"),
     ],
 )
 async def test_invalid_proposals_are_rejected(
@@ -88,7 +88,8 @@ async def test_invalid_proposals_are_rejected(
 
     assert response.status_code == status
     assert response.json()["code"] == code
-    assert await _versions(session, kind) == ({1: "active"} if kind == "tiering" else {})
+    # Every kind has a seeded v1 (migrations 0008 and 0014); nothing new was added.
+    assert await _versions(session, kind) == {1: "active"}
 
 
 async def test_the_author_cannot_activate_their_own_policy(

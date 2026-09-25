@@ -1,15 +1,43 @@
+from datetime import date
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.passport.enums import ConsentPurpose
+from app.modules.passport.enums import ConsentPurpose, WorkerStatus
 from app.modules.passport.models import Consent, Skill, SkillClaim, Worker
 
 
 class WorkerRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+
+    async def get_for_update(self, worker_id: UUID) -> Worker | None:
+        return await self.session.scalar(
+            select(Worker).where(Worker.id == worker_id).with_for_update(key_share=True)
+        )
+
+    async def dormant_before(self, cutoff: date) -> list[UUID]:
+        """Dormant workers idle since before `cutoff` (retention, spec §6.6)."""
+        rows = await self.session.scalars(
+            select(Worker.id)
+            .where(
+                Worker.status == WorkerStatus.DORMANT,
+                Worker.dormant_since.is_not(None),
+                Worker.dormant_since < cutoff,
+            )
+            .order_by(Worker.id)
+        )
+        return list(rows.all())
+
+    async def tier_counts(self) -> list[tuple[str, str, int]]:
+        """(data_region, standing_tier, count) for the talent pool."""
+        rows = await self.session.execute(
+            select(Worker.data_region, Worker.standing_tier, func.count())
+            .where(Worker.status.in_((WorkerStatus.ACTIVE, WorkerStatus.DORMANT)))
+            .group_by(Worker.data_region, Worker.standing_tier)
+        )
+        return [(region, tier.value, int(n)) for region, tier, n in rows]
 
     async def get(self, worker_id: UUID) -> Worker | None:
         return await self.session.get(Worker, worker_id)
@@ -104,6 +132,9 @@ class ConsentRepository:
         return await self.session.scalar(
             select(Consent).where(Consent.worker_id == worker_id, Consent.purpose == purpose)
         )
+
+    async def delete_for_worker(self, worker_id: UUID) -> None:
+        await self.session.execute(delete(Consent).where(Consent.worker_id == worker_id))
 
     def add(self, consent: Consent) -> Consent:
         self.session.add(consent)

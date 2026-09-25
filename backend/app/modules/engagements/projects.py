@@ -6,8 +6,9 @@ from app.core.audit.writer import write_audit
 from app.core.config import Settings
 from app.core.context import Actor
 from app.core.enums import UserRole
-from app.core.errors import BadRequest, Forbidden, NotFound
+from app.core.errors import BadRequest, Conflict, Forbidden, NotFound
 from app.core.time import utcnow
+from app.modules.engagements.enums import ProjectStatus
 from app.modules.engagements.models import Project, ProjectStaff
 from app.modules.engagements.repository import ProjectRepository
 from app.modules.engagements.schemas import ProjectCreate, ProjectRead, StaffAssignment
@@ -131,6 +132,33 @@ class ProjectService:
                 before={"staff": before},
                 after={"staff": after},
             )
+        return await self._read(project)
+
+    async def close(self, actor: Actor, project_id: UUID) -> ProjectRead:
+        """Closes the project and ends its staffing, so staff rows stop granting
+        worker visibility. Refused while an engagement on it is still open."""
+        project = await self.visible(actor, project_id)
+        if project.status is ProjectStatus.CLOSED:
+            return await self._read(project)
+        if await self.projects.has_open_engagements(project.id):
+            raise Conflict(
+                "Complete or cancel this project's open engagements first",
+                code="project_has_open_engagements",
+            )
+        project.status = ProjectStatus.CLOSED
+        now = utcnow()
+        ended = await self.projects.active_staff_rows(project.id)
+        for row in ended:
+            row.active_to = now
+        await write_audit(
+            self.session,
+            actor=actor,
+            action="project.closed",
+            target_type="project",
+            target_id=project.id,
+            before={"status": ProjectStatus.ACTIVE.value},
+            after={"status": ProjectStatus.CLOSED.value, "staff_ended": len(ended)},
+        )
         return await self._read(project)
 
 

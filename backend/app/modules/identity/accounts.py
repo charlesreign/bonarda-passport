@@ -121,3 +121,34 @@ async def staff_contacts(session: AsyncSession, role: UserRole) -> list[AccountC
         .order_by(UserAccount.email)
     )
     return [AccountContact(email=user.email, locale=user.locale) for user in rows.all()]
+
+
+async def delete_worker_account(session: AsyncSession, worker_id: UUID) -> UUID | None:
+    """Erasure (spec §6.3): the worker's sign-in account goes; its refresh
+    sessions cascade. Returns the deleted account id, if there was one."""
+    user = await session.scalar(select(UserAccount).where(UserAccount.worker_id == worker_id))
+    if user is None:
+        return None
+    user_id = user.id
+    await session.delete(user)
+    await session.flush()
+    # The email is not recorded: the audit log outlives the erasure.
+    await write_audit(
+        session,
+        actor=None,
+        action="user.deleted",
+        target_type="user_account",
+        target_id=user_id,
+        reason="worker_anonymized",
+    )
+    return user_id
+
+
+async def can_view_governance(session: AsyncSession, user_id: UUID) -> bool:
+    """PM leadership's governance access: an admin-set account flag."""
+    flag = await session.scalar(
+        select(UserAccount.can_view_governance).where(
+            UserAccount.id == user_id, UserAccount.status == AccountStatus.ACTIVE
+        )
+    )
+    return bool(flag)

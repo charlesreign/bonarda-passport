@@ -62,6 +62,18 @@ class WorkerUpdated(DomainEvent):
     fields: list[str]
 
 
+class WorkerAnonymized(DomainEvent):
+    """aggregate_id is the worker. Each module scrubs its own personal data."""
+
+    event_type: ClassVar[str] = "passport.worker_anonymized"
+
+
+class ErasureRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=10, max_length=500)
+
+
 class WorkerRegion(BaseModel):
     data_region: str
     cross_region_ok: bool

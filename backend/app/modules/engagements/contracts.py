@@ -38,7 +38,29 @@ async def send_contract(session: AsyncSession, esign: EsignAdapter, engagement_i
     project = await ProjectRepository(session).get(engagement.project_id)
     contact = await worker_contact(session, engagement.worker_id)
     name = await worker_name(session, engagement.worker_id)
-    if project is None or contact is None or name is None:
+    if contact is None:
+        # The worker's account is gone (erased or anonymized): nobody can sign,
+        # so cancel rather than retry into the dead-letter list.
+        engagement.status = EngagementStatus.CANCELLED
+        engagement.stuck_flagged_at = None
+        await write_audit(
+            session,
+            actor=None,
+            action="engagement.cancelled",
+            target_type="engagement",
+            target_id=engagement.id,
+            reason="worker_account_missing",
+        )
+        await emit_event(
+            session,
+            EngagementCancelled(
+                aggregate_id=engagement.id,
+                worker_id=engagement.worker_id,
+                project_id=engagement.project_id,
+            ),
+        )
+        return
+    if project is None or name is None:
         raise RuntimeError(f"engagement {engagement_id} is missing its project or worker")
     envelope_id = await esign.send_contract(
         ContractDocument(

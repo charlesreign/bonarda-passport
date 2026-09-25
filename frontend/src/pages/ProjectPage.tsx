@@ -10,7 +10,7 @@ import {
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type Candidate, type FirstShotItem, type Project } from "../api";
 import {
   Avatar,
@@ -178,6 +178,16 @@ export default function ProjectPage() {
       api<{ items: Candidate[] }>(`/projects/${projectId}/candidates?limit=25${q ? `&q=${encodeURIComponent(q)}` : ""}`),
   });
   const p = project.data;
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [confirmClose, setConfirmClose] = useState(false);
+  const close = useMutation({
+    mutationFn: () => api(`/projects/${projectId}/close`, { method: "POST" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      navigate("/console");
+    },
+  });
   return (
     <>
       <Link to="/console" className="small-text" style={{ display: "inline-flex", gap: 6, alignItems: "center", marginBottom: 12 }}>
@@ -204,7 +214,23 @@ export default function ProjectPage() {
               </span>
             </div>
           </div>
-          <div>
+          <div className="stack" style={{ gap: 8, alignItems: "flex-end" }}>
+            {confirmClose ? (
+              <div className="row wrap">
+                <span className="small-text">Close this project and end its staffing?</span>
+                <button className="danger small" onClick={() => close.mutate()} disabled={close.isPending}>
+                  Close project
+                </button>
+                <button className="secondary small" onClick={() => setConfirmClose(false)}>
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button className="secondary small" onClick={() => setConfirmClose(true)}>
+                Close project
+              </button>
+            )}
+            <ErrorNote error={close.error} />
             <p className="small-text muted" style={{ marginBottom: 4 }}>
               Required skills
             </p>

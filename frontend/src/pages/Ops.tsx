@@ -1,4 +1,14 @@
-import { Check, ClockCountdown, FileText, Gavel, ListMagnifyingGlass, SlidersHorizontal, X } from "@phosphor-icons/react";
+import {
+  ChartBar,
+  Check,
+  ClockCountdown,
+  FileText,
+  Gavel,
+  ListMagnifyingGlass,
+  SlidersHorizontal,
+  WarningCircle,
+  X,
+} from "@phosphor-icons/react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState, type KeyboardEvent } from "react";
 import { api, type AuditEntry, type Dispute, type Page, type WorkerView } from "../api";
@@ -253,6 +263,161 @@ function AuditLog() {
   );
 }
 
+interface Rollup {
+  period_start: string;
+  period_end: string;
+  scope: string;
+  engagements_total: number;
+  engagements_repeat: number;
+  share: number;
+  first_shot_shown: number;
+  first_shot_engaged: number;
+  tier_counts: Record<string, number>;
+  alerted: boolean;
+}
+
+interface Overview {
+  alert_share: number;
+  repeat_min_engagements: number;
+  window_days: number;
+  policy_version: number;
+  concentration: Rollup[];
+  disputes: { open: number; overdue: number; resolved_30d: number; upheld_30d: number };
+}
+
+const pct = (n: number) => `${Math.round(n * 100)}%`;
+const TIER_ORDER = ["tier_2", "tier_1", "unrated"];
+
+function OverviewTab() {
+  const { data, error, isLoading } = useQuery({
+    queryKey: ["governance-overview"],
+    queryFn: () => api<Overview>("/governance/overview"),
+  });
+  if (isLoading) return <Loading lines={5} />;
+  if (error) return <ErrorNote error={error} />;
+  if (!data) return null;
+  const org = data.concentration.find((r) => r.scope === "ORG");
+  const tiers = org?.tier_counts ?? {};
+  const pool = Object.values(tiers).reduce((a, b) => a + b, 0);
+  return (
+    <div className="stack">
+      <dl className="stats overview-stats">
+        <div className="stat">
+          <dt>Repeat share (org)</dt>
+          <dd className={org && org.share > data.alert_share ? "text-bad" : undefined}>
+            {org ? pct(org.share) : "—"}
+          </dd>
+        </div>
+        <div className="stat">
+          <dt>Alert threshold</dt>
+          <dd>{pct(data.alert_share)}</dd>
+        </div>
+        <div className="stat">
+          <dt>Open disputes</dt>
+          <dd>{data.disputes.open}</dd>
+        </div>
+        <div className="stat">
+          <dt>Overdue</dt>
+          <dd className={data.disputes.overdue > 0 ? "text-bad" : undefined}>{data.disputes.overdue}</dd>
+        </div>
+      </dl>
+      <Card
+        title="Work concentration"
+        icon={<ChartBar size={20} aria-hidden="true" />}
+        subtitle={`Share of engagements in the last ${data.window_days} days that went to people with ${data.repeat_min_engagements} or more. Concentration policy v${data.policy_version}; refreshed nightly${org ? `, last ${date(org.period_end)}` : ""}.`}
+      >
+        {data.concentration.length === 0 ? (
+          <Empty icon={<ChartBar size={36} aria-hidden="true" />}>No rollup yet. It runs nightly at 02:10 UTC.</Empty>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th scope="col">Scope</th>
+                  <th scope="col">Engagements</th>
+                  <th scope="col">Repeat share</th>
+                  <th scope="col">First shot shown</th>
+                  <th scope="col">First shot engaged</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.concentration.map((r) => (
+                  <tr key={r.scope}>
+                    <td>
+                      <strong>{r.scope === "ORG" ? "Whole organisation" : r.scope}</strong>
+                    </td>
+                    <td className="num">{r.engagements_total}</td>
+                    <td>
+                      <div className="share">
+                        <span className="num">{pct(r.share)}</span>
+                        <div
+                          className="sharebar"
+                          role="img"
+                          aria-label={`${pct(r.share)} against a ${pct(data.alert_share)} threshold`}
+                        >
+                          <span className={r.share > data.alert_share ? "over" : ""} style={{ width: pct(r.share) }} />
+                          <i style={{ left: pct(data.alert_share) }} />
+                        </div>
+                        {r.share > data.alert_share && (
+                          <span className="pill pill-bad">
+                            <WarningCircle size={14} aria-hidden="true" />
+                            Above threshold
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="num">{r.first_shot_shown}</td>
+                    <td className="num">
+                      {r.first_shot_engaged}
+                      {r.first_shot_shown > 0 && (
+                        <span className="muted small-text"> ({pct(r.first_shot_engaged / r.first_shot_shown)})</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+      <div className="grid-2">
+        <Card title="Tier distribution" subtitle={`${pool} people in the talent pool`}>
+          {TIER_ORDER.map((tier) => {
+            const n = tiers[tier] ?? 0;
+            return (
+              <div key={tier} className="dist-row">
+                <TierBadge tier={tier} />
+                <div className="distbar" aria-hidden="true">
+                  <span className={`dist-${tier}`} style={{ width: pool ? `${(n / pool) * 100}%` : 0 }} />
+                </div>
+                <span className="num">
+                  {n} <span className="muted small-text">({pool ? pct(n / pool) : "0%"})</span>
+                </span>
+              </div>
+            );
+          })}
+        </Card>
+        <Card title="Disputes, last 30 days">
+          <dl className="stats">
+            <div className="stat">
+              <dt>Resolved</dt>
+              <dd>{data.disputes.resolved_30d}</dd>
+            </div>
+            <div className="stat">
+              <dt>Upheld</dt>
+              <dd>{data.disputes.upheld_30d}</dd>
+            </div>
+            <div className="stat">
+              <dt>Open now</dt>
+              <dd>{data.disputes.open}</dd>
+            </div>
+          </dl>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 type PolicyVersion = { version: number; status: string; rules: unknown; notes: string | null };
 
 function Policies() {
@@ -286,11 +451,16 @@ function Policies() {
   );
 }
 
-const TAB_LABEL: Record<string, string> = { disputes: "Disputes", audit: "Audit log", policies: "Policies" };
+const TAB_LABEL: Record<string, string> = {
+  overview: "Overview",
+  disputes: "Disputes",
+  audit: "Audit log",
+  policies: "Policies",
+};
 
 export default function Ops() {
   const { me } = useAuth();
-  const tabs = me?.role === "admin" ? ["audit"] : ["disputes", "audit", "policies"];
+  const tabs = me?.role === "admin" ? ["overview", "audit"] : ["overview", "disputes", "audit", "policies"];
   const [tab, setTab] = useState(tabs[0]);
 
   function onTabKey(event: KeyboardEvent) {
@@ -325,6 +495,7 @@ export default function Ops() {
         </div>
       </div>
       <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
+        {tab === "overview" && <OverviewTab />}
         {tab === "disputes" && <Disputes />}
         {tab === "audit" && <AuditLog />}
         {tab === "policies" && <Policies />}

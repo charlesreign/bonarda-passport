@@ -68,6 +68,18 @@ class ProjectRepository:
     async def active_staff_ids(self, project_id: UUID) -> set[UUID]:
         return {row.user_account_id for row in await self.active_staff_rows(project_id)}
 
+    async def has_open_engagements(self, project_id: UUID) -> bool:
+        return bool(
+            await self.session.scalar(
+                select(
+                    exists().where(
+                        Engagement.project_id == project_id,
+                        Engagement.status.in_(OPEN_STATUSES),
+                    )
+                )
+            )
+        )
+
     async def active_rows_for_user(self, user_id: UUID) -> list[ProjectStaff]:
         stmt = select(ProjectStaff).where(
             ProjectStaff.user_account_id == user_id, ProjectStaff.active_to.is_(None)
@@ -223,6 +235,20 @@ class EngagementRepository:
             .with_for_update(skip_locked=True)
         )
         return list((await self.session.scalars(stmt)).all())
+
+    async def feedback_with_text(
+        self, *, worker_id: UUID | None, completed_before: datetime | None
+    ) -> list[Feedback]:
+        stmt = (
+            select(Feedback)
+            .join(Engagement, Engagement.id == Feedback.engagement_id)
+            .where(Feedback.free_text.is_not(None))
+        )
+        if worker_id is not None:
+            stmt = stmt.where(Engagement.worker_id == worker_id)
+        if completed_before is not None:
+            stmt = stmt.where(Engagement.completed_at < completed_before)
+        return list((await self.session.scalars(stmt.with_for_update(of=Feedback))).all())
 
     async def feedback_for_update(self, feedback_id: UUID) -> Feedback | None:
         return await self.session.scalar(

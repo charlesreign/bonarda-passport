@@ -300,6 +300,13 @@ export default function WorkerPanel({
     queryFn: () => api<Standing>(`/workers/${workerId}/standing`),
     enabled: detail,
   });
+  const disputes = useQuery({
+    queryKey: ["worker-disputes", workerId],
+    queryFn: () => api<{ id: string; target_type: string; status: string; resolution: string | null }[]>(
+      `/workers/${workerId}/disputes`,
+    ),
+    enabled: detail,
+  });
   const w = worker.data;
   const openEngagement = engagements.data?.some(
     (e) => e.project_id === project.id && !["completed", "cancelled"].includes(e.status),
@@ -373,6 +380,14 @@ export default function WorkerPanel({
                   <dd>{Math.round(standing.data.factors.positive_ratio * 100)}%</dd>
                 </div>
               </dl>
+            )}
+            {disputes.data && disputes.data.length > 0 && (
+              <p className="small-text top-gap row wrap">
+                Disputes:
+                {disputes.data.map((d) => (
+                  <Status key={d.id} value={d.resolution ?? d.status} />
+                ))}
+              </p>
             )}
             {!openEngagement && <EngageForm worker={w} project={project} />}
             {detail && (
