@@ -1,11 +1,13 @@
 """The worker's side of an offer: declining it, and who may see a decline
 afterwards (offer-decline spec §4–§5). Declines are recorded, never scored."""
 
+from collections.abc import Collection
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.context import Actor
+from app.core.enums import UserRole
 from app.core.errors import Conflict, NotFound
 from app.core.outbox.writer import emit_event
 from app.modules.engagements.cancellation import cancel
@@ -15,8 +17,9 @@ from app.modules.engagements.enums import (
     EngagementStatus,
 )
 from app.modules.engagements.models import Engagement
-from app.modules.engagements.repository import EngagementRepository
+from app.modules.engagements.repository import EngagementRepository, ProjectRepository
 from app.modules.engagements.schemas import ContractVoidRequested, DeclineRequest
+from app.modules.identity.service import Visibility
 
 
 class DeclineService:
@@ -57,3 +60,26 @@ class DeclineService:
                 ContractVoidRequested(aggregate_id=engagement.id, envelope_id=envelope_id),
             )
         return engagement
+
+
+_FULL_VIEWERS = frozenset({UserRole.PEOPLE_OPS, UserRole.ADMIN})
+
+
+def decline_visible_to(
+    actor: Actor,
+    level: Visibility,
+    engagement: Engagement,
+    staffed_project_ids: Collection[UUID],
+) -> bool:
+    """The worker, People Ops, admin and the offering project's PMs see a
+    decline. Nobody else learns of it, so it cannot become an informal
+    penalty on the worker (offer-decline spec §5)."""
+    if level is Visibility.SELF or actor.role in _FULL_VIEWERS:
+        return True
+    return engagement.project_id in staffed_project_ids
+
+
+async def staffed_project_ids(session: AsyncSession, actor: Actor) -> set[UUID]:
+    if actor.role is not UserRole.PM:
+        return set()
+    return {p.id for p in await ProjectRepository(session).list_staffed_by(actor.user_id)}
